@@ -10,8 +10,19 @@ dotenv.config()
 const app = express().use(bodyParser.json())
 const PORT = 80
 
-// Ensure all webhooks contain the TRADE_AUTH_ID to authorize trades to be made
-const TRADE_AUTH_ID = process.env.TRADE_AUTH_ID
+// Ensure all TradingView webhooks contain the TV_AUTH_ID to authorize trades to be made
+const TV_AUTH_ID = process.env.TV_AUTH_ID
+
+// Set the exchange according to the CCXT ID https://github.com/ccxt/ccxt/wiki/Manual
+const EXCHANGE = 'bybit'
+const TEST_MODE = process.env.TEST_MODE
+const EXCHANGE_TESTNET_API_KEY = process.env[EXCHANGE.toUpperCase() + '_TESTNET_API_KEY']
+const EXCHANGE_TESTNET_API_SECRET = process.env[EXCHANGE.toUpperCase() + '_TESTNET_API_SECRET']
+const EXCHANGE_LIVE_API_KEY = process.env[EXCHANGE.toUpperCase() + '_API_KEY']
+const EXCHANGE_LIVE_API_SECRET = process.env[EXCHANGE.toUpperCase() + '_API_SECRET']
+let apiKey = TEST_MODE == 'true' ? EXCHANGE_TESTNET_API_KEY : EXCHANGE_LIVE_API_KEY
+let apiSecret = TEST_MODE == 'true'? EXCHANGE_TESTNET_API_SECRET : EXCHANGE_LIVE_API_SECRET
+
 
 //
 // === Endpoints ===
@@ -34,7 +45,7 @@ app.post("/tradingview", (req, res) => {
 
 // Checks first to see if the webhook carries a valid safety ID
 const handleTrade = (req, res) => {
-  if (req.body.id == TRADE_AUTH_ID) {
+  if (req.body.authId === TV_AUTH_ID) {
     res.status(200).end()
     executeTrade(req.body)
   } else {
@@ -42,42 +53,53 @@ const handleTrade = (req, res) => {
   }
 }
 
+
 // Execute the proper trade via a CCXT promise
 const executeTrade = async (json) => {
   'use strict' // Locally-scoped safety
 
   // Instantiate the exchange--I don't know how to preserve this in global memory
-  let phemex = new ccxt.phemex ({
-    apiKey: process.env.PHEMEX_API_KEY,
-    secret: process.env.PHEMEX_API_SECRET
+  let exchange = new ccxt[EXCHANGE.toLowerCase()] ({
+    apiKey: apiKey,
+    secret: apiSecret
   })
 
+  // Handle authentication in test mode
+  if (TEST_MODE == 'true') {
+    exchange.urls['api'] = exchange.urls['test']
+  }
+
   // Check balances and use that in the trade
-  let balances = phemex.fetchBalance()
+  const TICKER = 'ETH/USD'
+  let balances = await exchange.fetchBalance()
   let ethBalance = balances['ETH']
-  // console.log(ethBalance.free)
-  // console.log(ethBalance.used)
+  // console.log('===')
+  // console.log('free ETH', ethBalance.free)
+  // console.log('used ETH', ethBalance.used)
+
+  // TODO: retrieve price so we can place a take profit and stop loss
 
 
   // Decides what action to take with the received signal
-  const tradeParser = (json) => {
+  let tradeParser = (json) => {
 
-    // TODO: MAKE THIS WORK!!!
-    {action, leverage, takeProfitPercent, stopLossPercent} = json
+    // ttpp = trailing take profit %, tslp = trailing stop loss %
+    let {authId, action, ttpp, tslp, leverage} = json
 
-    // TODO: ALSO NEED AMOUNT IN HERE!!!
     switch (action) {
-      case 'short_entry':
-        console.log('short_exit', leverage, takeProfitPercent, stopLossPercent)
-        // await phemex.createMarketSellOrder ('ETH/USDT', 1) // sell 1 ETH
+      case 'short':
+        console.log('SHORT ORDER', json)
+        // console.log(await exchange.createMarketSellOrder (TICKER, .5)) // sell .5 ETH
         break
-      case 'short_exit':
-        console.log('short_exit', leverage, takeProfit, stopLossPercent)
-        // await phemex.createMarketBuyOrder ('ETH/USDT', 1) // buy 1 ETH
+      case 'exit':
+        console.log('EXIT ORDER', json)
+        // console.log(await exchange.cancelAllOrders(TICKER))
         break
       default:
         console.log('Invalid action')
-        // await phemex.cancelAllOrders // use this when using leverage
+        // await exchange.cancelAllOrders // use this when using leverage
     }
   }
+
+  tradeParser(json) // Executes the correct trade
 }
