@@ -4,7 +4,7 @@ const ccxt = require ('ccxt')
 const dotenv = require('dotenv')
 
 //
-// === Setup and config ===
+// === Setup, config, and exchange initialization ===
 //
 
 // Use .env file for private keys
@@ -50,7 +50,7 @@ if (TEST_MODE) {
 
 
 //
-// === Webhooks and handlers ===
+// === Webhooks ===
 //
 
 // Catch the webhook and handle the trade
@@ -60,7 +60,7 @@ app.post("/placeTrade", (req, res) => {
 
 // Checks first to see if the webhook carries a valid safety ID
 const handleTrade = (req, res) => {
-  if (req.body.authId === AUTH_ID) {
+  if (req.body.auth_id === AUTH_ID) {
     res.status(200).end()
     executeTrade(req.body)
   } else {
@@ -71,16 +71,19 @@ const handleTrade = (req, res) => {
 
 
 //
-// === Exchange and trades ===
+// === Trade execution ===
 //
 
 // Execute the proper trade via a CCXT promise
 const executeTrade = async (json) => {
   'use strict' // Locally-scoped safety
 
-  // ttpp = trailing take profit %, tslp = trailing stop loss %
-  // LEVERAGE NEEDS TO MANUALLY BE SET IN BYBIT AS WELL
-  const {action, ttpp, tslp, leverage} = json
+  // tpp = take profit %, slp = stop loss %, tslp = trailing stop loss %
+  // IMPORTANT: LEVERAGE NEEDS TO MANUALLY BE SET IN BYBIT AS WELL!!!
+  let {action, tpp, slp, tslp, leverage} = json
+  tpp = parseFloat(tpp * .01) // to percent
+  slp = parseFloat(slp * .01) // to percent
+  tslp = parseFloat(tslp * .01) // to percent
 
   // Check balances and use that in the trade
   const balances = await exchange.fetchBalance()
@@ -90,47 +93,71 @@ const executeTrade = async (json) => {
   const usedBaseBalance = balances[TICKER_BASE].used
   const baseContractQty = freeBaseBalance * quotePrice * (leverage * .95) // .95 so we have enough funds
   const usedContractQty = usedBaseBalance * quotePrice * (leverage * 1.05) // 1.05 so we don't leave 'dust' in an open order
-  console.log('===')
-  console.log('free', TICKER_BASE, freeBaseBalance)
-  console.log('used', TICKER_BASE, usedBaseBalance)
-  console.log(TICKER, 'price', quotePrice)
 
-  // TODO: set take profit and stop loss
-
-  const shortEntry = async (json) => {
+  // Parse params according to each exchanges' API
+  const handleTradeParams = () => {
     switch (EXCHANGE) {
       case 'bybit':
-        console.log(await exchange.createOrder(TICKER, 'market', 'sell', baseContractQty, quotePrice, {}))
+        if (action == 'long_entry' || action == 'reverse_short_to_long') {
+          return {
+            'take_profit': tpp ? (quotePrice * (1 + tpp)) : undefined,
+            'stop_loss': slp ? (quotePrice * (1 - slp)) : undefined
+          }
+        } else if (action == 'short_entry' || action == 'reverse_long_to_short') {
+          return {
+            'take_profit': tpp ? (quotePrice * (1 - tpp)) : undefined,
+            'stop_loss': slp ? (quotePrice * (1 + slp)) : undefined
+          }
+        }
         break
       // Add more exchanges here
     }
   }
 
-  const shortExit = async (json) => {
+  let tradeParams = handleTradeParams()
+  console.log('===')
+  console.log('free', TICKER_BASE, freeBaseBalance)
+  console.log('used', TICKER_BASE, usedBaseBalance)
+  console.log(TICKER, 'price', quotePrice)
+
+  // TODO: set trailing stop loss
+
+  const shortEntry = async () => {
+    switch (EXCHANGE) {
+      case 'bybit':
+        console.log(await exchange.createOrder(TICKER, 'market', 'sell', baseContractQty, quotePrice, tradeParams))
+        break
+      // Add more exchanges here
+    }
+  }
+
+  const shortExit = async () => {
     if (usedBaseBalance > 0) { // only places command if there's an open position
       switch (EXCHANGE) {
         case 'bybit':
-          console.log(await exchange.createOrder(TICKER, 'market', 'buy', usedContractQty, quotePrice, {'reduce_only': true}))
+          tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
+          console.log(await exchange.createOrder(TICKER, 'market', 'buy', usedContractQty, quotePrice, tradeParams))
           break
         // Add more exchanges here
       }
     }
   }
 
-  const longEntry = async (json) => {
+  const longEntry = async () => {
     switch (EXCHANGE) {
       case 'bybit':
-        console.log(await exchange.createOrder(TICKER, 'market', 'buy', baseContractQty, quotePrice, {}))
+        console.log(await exchange.createOrder(TICKER, 'market', 'buy', baseContractQty, quotePrice, tradeParams))
         break
       // Add more exchanges here
     }
   }
 
-  const longExit = async (json) => {
+  const longExit = async () => {
     if (usedBaseBalance > 0) { // only places command if there's an open position
       switch (EXCHANGE) {
         case 'bybit':
-          console.log(await exchange.createOrder(TICKER, 'market', 'sell', usedContractQty, quotePrice, {'reduce_only': true}))
+          tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
+          console.log(await exchange.createOrder(TICKER, 'market', 'sell', usedContractQty, quotePrice, tradeParams))
           break
         // Add more exchanges here
       }
@@ -138,28 +165,38 @@ const executeTrade = async (json) => {
   }
 
   // Decides what action to take with the received signal
-  const tradeParser = async (json) => {
+  const tradeParser = async () => {
     switch (action) {
       case 'short_entry':
         console.log('SHORT ENTRY', json)
-        shortEntry(json)
+        await shortEntry()
         break
       case 'short_exit':
         console.log('SHORT EXIT', json)
-        shortExit(json)
+        await shortExit()
         break
       case 'long_entry':
         console.log('LONG ENTRY', json)
-        longEntry(json)
+        await longEntry()
         break
       case 'long_exit':
         console.log('LONG EXIT', json)
-        longExit(json)
+        await longExit()
+        break
+      case 'reverse_short_to_long':
+        console.log('REVERSE SHORT TO LONG', json)
+        await shortExit()
+        await longEntry()
+        break
+      case 'reverse_long_to_short':
+        console.log('REVERSE LONG TO SHORT', json)
+        await longExit()
+        await shortEntry()
         break
       default:
         console.log('Invalid action')
     }
   }
 
-  tradeParser(json) // Executes the correct trade
+  tradeParser() // Executes the correct trade
 }
