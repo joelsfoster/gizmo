@@ -78,125 +78,127 @@ const handleTrade = (req, res) => {
 const executeTrade = async (json) => {
   'use strict' // Locally-scoped safety
 
-  // tpp = take profit %, slp = stop loss %, tslp = trailing stop loss %
-  // IMPORTANT: LEVERAGE NEEDS TO MANUALLY BE SET IN BYBIT AS WELL!!!
-  let {action, tpp, slp, tslp, leverage} = json
-  tpp = parseFloat(tpp * .01) // to percent
-  slp = parseFloat(slp * .01) // to percent
-  tslp = parseFloat(tslp * .01) // to percent
+  try {
+    // tpp = take profit %, slp = stop loss %, tslp = trailing stop loss %
+    // IMPORTANT: LEVERAGE NEEDS TO MANUALLY BE SET IN BYBIT AS WELL!!!
+    let {action, tpp, slp, tslp, leverage} = json
+    tpp = parseFloat(tpp * .01) // to percent
+    slp = parseFloat(slp * .01) // to percent
+    tslp = parseFloat(tslp * .01) // to percent
 
-  // Check balances and use that in the trade
-  const balances = await exchange.fetchBalance()
-  const tickerDetails = await exchange.fetchTicker(TICKER)
-  const quotePrice = tickerDetails.last
-  const freeBaseBalance = balances[TICKER_BASE].free
-  const usedBaseBalance = balances[TICKER_BASE].used
-  const baseContractQty = freeBaseBalance * quotePrice * (leverage * .95) // .95 so we have enough funds
-  const usedContractQty = usedBaseBalance * quotePrice * (leverage * 1.05) // 1.05 so we don't leave 'dust' in an open order
+    // Check balances and use that in the trade
+    const balances = await exchange.fetchBalance()
+    const tickerDetails = await exchange.fetchTicker(TICKER)
+    const quotePrice = tickerDetails.last
+    const freeBaseBalance = balances[TICKER_BASE].free
+    const usedBaseBalance = balances[TICKER_BASE].used
+    const baseContractQty = freeBaseBalance * quotePrice * (leverage * .95) // .95 so we have enough funds
+    const usedContractQty = usedBaseBalance * quotePrice * (leverage * 1.05) // 1.05 so we don't leave 'dust' in an open order
 
-  // Parse params according to each exchanges' API
-  const handleTradeParams = () => {
-    switch (EXCHANGE) {
-      case 'bybit':
-        if (action == 'long_entry' || action == 'reverse_short_to_long') {
-          return {
-            'take_profit': tpp ? (quotePrice * (1 + tpp)) : undefined,
-            'stop_loss': slp ? (quotePrice * (1 - slp)) : undefined
+    // Parse params according to each exchanges' API
+    const handleTradeParams = () => {
+      switch (EXCHANGE) {
+        case 'bybit':
+          if (action == 'long_entry' || action == 'reverse_short_to_long') {
+            return {
+              'take_profit': tpp ? (quotePrice * (1 + tpp)) : undefined,
+              'stop_loss': slp ? (quotePrice * (1 - slp)) : undefined
+            }
+          } else if (action == 'short_entry' || action == 'reverse_long_to_short') {
+            return {
+              'take_profit': tpp ? (quotePrice * (1 - tpp)) : undefined,
+              'stop_loss': slp ? (quotePrice * (1 + slp)) : undefined
+            }
           }
-        } else if (action == 'short_entry' || action == 'reverse_long_to_short') {
-          return {
-            'take_profit': tpp ? (quotePrice * (1 - tpp)) : undefined,
-            'stop_loss': slp ? (quotePrice * (1 + slp)) : undefined
-          }
+          break
+        // Add more exchanges here
+      }
+    }
+
+    let tradeParams = handleTradeParams()
+    console.log('===')
+    console.log('free', TICKER_BASE, freeBaseBalance)
+    console.log('used', TICKER_BASE, usedBaseBalance)
+    console.log(TICKER, 'price', quotePrice)
+
+    // TODO: set trailing stop loss
+
+    const shortEntry = async () => {
+      switch (EXCHANGE) {
+        case 'bybit':
+          console.log(await exchange.createOrder(TICKER, 'market', 'sell', baseContractQty, quotePrice, tradeParams))
+          break
+        // Add more exchanges here
+      }
+    }
+
+    const shortExit = async () => {
+      if (usedBaseBalance > 0) { // only places command if there's an open position
+        switch (EXCHANGE) {
+          case 'bybit':
+            tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
+            console.log(await exchange.createOrder(TICKER, 'market', 'buy', usedContractQty, quotePrice, tradeParams))
+            break
+          // Add more exchanges here
         }
-        break
-      // Add more exchanges here
+      }
     }
-  }
 
-  let tradeParams = handleTradeParams()
-  console.log('===')
-  console.log('free', TICKER_BASE, freeBaseBalance)
-  console.log('used', TICKER_BASE, usedBaseBalance)
-  console.log(TICKER, 'price', quotePrice)
-
-  // TODO: set trailing stop loss
-
-  const shortEntry = async () => {
-    switch (EXCHANGE) {
-      case 'bybit':
-        console.log(await exchange.createOrder(TICKER, 'market', 'sell', baseContractQty, quotePrice, tradeParams))
-        break
-      // Add more exchanges here
-    }
-  }
-
-  const shortExit = async () => {
-    if (usedBaseBalance > 0) { // only places command if there's an open position
+    const longEntry = async () => {
       switch (EXCHANGE) {
         case 'bybit':
-          tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
-          console.log(await exchange.createOrder(TICKER, 'market', 'buy', usedContractQty, quotePrice, tradeParams))
+          console.log(await exchange.createOrder(TICKER, 'market', 'buy', baseContractQty, quotePrice, tradeParams))
           break
         // Add more exchanges here
       }
     }
-  }
 
-  const longEntry = async () => {
-    switch (EXCHANGE) {
-      case 'bybit':
-        console.log(await exchange.createOrder(TICKER, 'market', 'buy', baseContractQty, quotePrice, tradeParams))
-        break
-      // Add more exchanges here
-    }
-  }
-
-  const longExit = async () => {
-    if (usedBaseBalance > 0) { // only places command if there's an open position
-      switch (EXCHANGE) {
-        case 'bybit':
-          tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
-          console.log(await exchange.createOrder(TICKER, 'market', 'sell', usedContractQty, quotePrice, tradeParams))
-          break
-        // Add more exchanges here
+    const longExit = async () => {
+      if (usedBaseBalance > 0) { // only places command if there's an open position
+        switch (EXCHANGE) {
+          case 'bybit':
+            tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
+            console.log(await exchange.createOrder(TICKER, 'market', 'sell', usedContractQty, quotePrice, tradeParams))
+            break
+          // Add more exchanges here
+        }
       }
     }
-  }
 
-  // Decides what action to take with the received signal
-  const tradeParser = async () => {
-    switch (action) {
-      case 'short_entry':
-        console.log('SHORT ENTRY', json)
-        await shortEntry()
-        break
-      case 'short_exit':
-        console.log('SHORT EXIT', json)
-        await shortExit()
-        break
-      case 'long_entry':
-        console.log('LONG ENTRY', json)
-        await longEntry()
-        break
-      case 'long_exit':
-        console.log('LONG EXIT', json)
-        await longExit()
-        break
-      case 'reverse_short_to_long':
-        console.log('REVERSE SHORT TO LONG', json)
-        await shortExit()
-        await longEntry()
-        break
-      case 'reverse_long_to_short':
-        console.log('REVERSE LONG TO SHORT', json)
-        await longExit()
-        await shortEntry()
-        break
-      default:
-        console.log('Invalid action')
+    // Decides what action to take with the received signal
+    const tradeParser = async () => {
+      switch (action) {
+        case 'short_entry':
+          console.log('SHORT ENTRY', json)
+          await shortEntry()
+          break
+        case 'short_exit':
+          console.log('SHORT EXIT', json)
+          await shortExit()
+          break
+        case 'long_entry':
+          console.log('LONG ENTRY', json)
+          await longEntry()
+          break
+        case 'long_exit':
+          console.log('LONG EXIT', json)
+          await longExit()
+          break
+        case 'reverse_short_to_long':
+          console.log('REVERSE SHORT TO LONG', json)
+          // TODO
+          break
+        case 'reverse_long_to_short':
+          console.log('REVERSE LONG TO SHORT', json)
+          // TODO
+          break
+        default:
+          console.log('Invalid action')
+      }
     }
-  }
 
-  tradeParser() // Executes the correct trade
+    tradeParser() // Executes the correct trade
+  } catch(error) {
+    console.log('ERROR:', error)
+  }
 }
