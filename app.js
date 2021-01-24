@@ -129,7 +129,7 @@ const executeTrade = async (json) => {
               'take_profit': tpp ? (quotePrice * (1 - tpp)) : undefined,
               'stop_loss': slp ? (quotePrice * (1 + slp)) : undefined
             }
-          }
+          } else { return {} }
           break
         // Add more exchanges here
       }
