@@ -111,8 +111,8 @@ const executeTrade = async (json) => {
     const quotePrice = tickerDetails.last
     const freeBaseBalance = balances[TICKER_BASE].free
     const usedBaseBalance = balances[TICKER_BASE].used
-    const baseContractQty = freeBaseBalance * quotePrice * (leverage * .95) // .95 so we have enough funds
-    const usedContractQty = usedBaseBalance * quotePrice * (leverage * 1.05) // 1.05 so we don't leave 'dust' in an open order
+    const freeContractQty = freeBaseBalance * quotePrice * leverage * .95 // .95 so we have enough funds
+    const usedContractQty = usedBaseBalance * quotePrice * leverage
     const orderType = order_type == ('market' || 'limit') ? order_type : undefined
 
     // Parse params according to each exchanges' API
@@ -146,10 +146,10 @@ const executeTrade = async (json) => {
     // TODO: make 'set TSL' callback fire only after the 'cancel order after n seconds' time, only if order was filled
 
     const shortEntry = async (isReversal) => {
-      if (usedBaseBalance == 0 && orderType) { // only places command if there's no open position
+      if (orderType) {
         switch (EXCHANGE) {
           case 'bybit':
-            const orderQty = isReversal ? baseContractQty * 2 : baseContractQty
+            const orderQty = isReversal ? usedContractQty * 2 : freeContractQty
             console.log(await exchange.createOrder(TICKER, orderType, 'sell', orderQty, quotePrice, tradeParams))
             break
           // Add more exchanges here
@@ -158,7 +158,7 @@ const executeTrade = async (json) => {
     }
 
     const shortExit = async () => {
-      if (usedBaseBalance > 0 && orderType) { // only places command if there's an open position
+      if (orderType) {
         switch (EXCHANGE) {
           case 'bybit':
             tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
@@ -171,10 +171,10 @@ const executeTrade = async (json) => {
     }
 
     const longEntry = async (isReversal) => {
-      if (usedBaseBalance == 0 && orderType) { // only places command if there's no open position
+      if (orderType) {
         switch (EXCHANGE) {
           case 'bybit':
-            const orderQty = isReversal ? baseContractQty * 2 : baseContractQty
+            const orderQty = isReversal ? usedContractQty * 2 : freeContractQty
             console.log(await exchange.createOrder(TICKER, orderType, 'buy', orderQty, quotePrice, tradeParams))
             break
           // Add more exchanges here
@@ -183,7 +183,7 @@ const executeTrade = async (json) => {
     }
 
     const longExit = async () => {
-      if (usedBaseBalance > 0 && orderType) { // only places command if there's an open position
+      if (orderType) {
         switch (EXCHANGE) {
           case 'bybit':
             tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
@@ -197,7 +197,7 @@ const executeTrade = async (json) => {
 
     // Decides what action to take with the received signal
     const tradeParser = async () => {
-      const isReversal = usedBaseBalance > 0 ? true : undefined // used in reversal actions
+      const isReversal = usedBaseBalance > freeBaseBalance ? true : false // used in reversal actions
       switch (action) {
         case 'short_entry':
           console.log('SHORT ENTRY', json)
@@ -212,7 +212,7 @@ const executeTrade = async (json) => {
         case 'long_entry':
           console.log('LONG ENTRY', json)
           await longEntry()
-          .then(() => setBybitTslp(trailingStopLossTarget))
+          .then( EXCHANGE ? 'bybit' : () => setBybitTslp(trailingStopLossTarget) )
           .catch((error) => console.log(error))
           break
         case 'long_exit':
@@ -220,15 +220,15 @@ const executeTrade = async (json) => {
           await longExit()
           break
         case 'reverse_short_to_long':
-          console.log('REVERSE SHORT TO LONG', json)
+          console.log('REVERSE SHORT TO LONG, REVERSAL=' + isReversal, json)
           await longEntry(isReversal)
-          .then(() => setBybitTslp(trailingStopLossTarget))
+          .then(() => { EXCHANGE ? 'bybit' : setBybitTslp(trailingStopLossTarget) })
           .catch((error) => console.log(error))
           break
         case 'reverse_long_to_short':
-          console.log('REVERSE LONG TO SHORT', json)
+          console.log('REVERSE LONG TO SHORT, REVERSAL=' + isReversal, json)
           await shortEntry(isReversal)
-          .then(() => setBybitTslp(trailingStopLossTarget))
+          .then(() => { EXCHANGE ? 'bybit' : setBybitTslp(trailingStopLossTarget) })
           .catch((error) => console.log(error))
           break
         default:
