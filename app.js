@@ -1,3 +1,9 @@
+//
+// ~~~ Gizmo ~~~
+// ~~~ Original creator https://github.com/joelsfoster/ ~~~
+// ~~~ Please use with permission, always happy to see you succeed! ~~~
+//
+
 const express = require('express')
 const bodyParser = require('body-parser')
 const ccxt = require ('ccxt')
@@ -94,7 +100,7 @@ const executeTrade = async (json) => {
   try {
     // tpp = take profit %, slp = stop loss %, tslp = trailing stop loss %
     // IMPORTANT: LEVERAGE NEEDS TO MANUALLY BE SET IN BYBIT AS WELL!!!
-    let {action, tpp, slp, tslp, leverage} = json
+    let {action, order_type, limit_backtrace_percent, limit_cancel_time_seconds, tpp, slp, tslp, leverage} = json
     tpp = parseFloat(tpp * .01) // to percent
     slp = parseFloat(slp * .01) // to percent
     tslp = parseFloat(tslp * .01) // to percent
@@ -107,6 +113,7 @@ const executeTrade = async (json) => {
     const usedBaseBalance = balances[TICKER_BASE].used
     const baseContractQty = freeBaseBalance * quotePrice * (leverage * .95) // .95 so we have enough funds
     const usedContractQty = usedBaseBalance * quotePrice * (leverage * 1.05) // 1.05 so we don't leave 'dust' in an open order
+    const orderType = order_type == ('market' || 'limit') ? order_type : undefined
 
     // Parse params according to each exchanges' API
     const handleTradeParams = () => {
@@ -135,58 +142,62 @@ const executeTrade = async (json) => {
     console.log('used', TICKER_BASE, usedBaseBalance)
     console.log(TICKER, 'price', quotePrice)
 
-    // TODO: set trailing stop loss
+    // TODO: pass required params when making limit orders (limit order price, and cancel order after n seconds)
+    // TODO: make 'set TSL' callback fire only after the 'cancel order after n seconds' time, only if order was filled
 
-    const shortEntry = async () => {
-      if (usedBaseBalance == 0) { // only places command if there's no open position
+    const shortEntry = async (isReversal) => {
+      if (usedBaseBalance == 0 && orderType) { // only places command if there's no open position
         switch (EXCHANGE) {
           case 'bybit':
-            console.log(await exchange.createOrder(TICKER, 'market', 'sell', baseContractQty, quotePrice, tradeParams))
+            const orderQty = isReversal ? baseContractQty * 2 : baseContractQty
+            console.log(await exchange.createOrder(TICKER, orderType, 'sell', orderQty, quotePrice, tradeParams))
             break
           // Add more exchanges here
         }
-      } else { console.log('ORDER NOT PLACED, ORDER ALREADY EXISTS') }
+      } else { console.log('orderType=' + orderType, 'ORDER NOT PLACED, MAYBE ORDER ALREADY EXISTS?') }
     }
 
     const shortExit = async () => {
-      if (usedBaseBalance > 0) { // only places command if there's an open position
+      if (usedBaseBalance > 0 && orderType) { // only places command if there's an open position
         switch (EXCHANGE) {
           case 'bybit':
             tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
             tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
-            console.log(await exchange.createOrder(TICKER, 'market', 'buy', usedContractQty, quotePrice, tradeParams))
+            console.log(await exchange.createOrder(TICKER, orderType, 'buy', usedContractQty, quotePrice, tradeParams))
             break
           // Add more exchanges here
         }
-      } else { console.log('CLOSE ORDER CANCELED, NO ORDER TO CLOSE') }
+      } else { console.log('orderType=' + orderType, 'CLOSE ORDER CANCELED, MAYBE NO ORDER TO CLOSE?') }
     }
 
-    const longEntry = async () => {
-      if (usedBaseBalance == 0) { // only places command if there's no open position
+    const longEntry = async (isReversal) => {
+      if (usedBaseBalance == 0 && orderType) { // only places command if there's no open position
         switch (EXCHANGE) {
           case 'bybit':
-            console.log(await exchange.createOrder(TICKER, 'market', 'buy', baseContractQty, quotePrice, tradeParams))
+            const orderQty = isReversal ? baseContractQty * 2 : baseContractQty
+            console.log(await exchange.createOrder(TICKER, orderType, 'buy', orderQty, quotePrice, tradeParams))
             break
           // Add more exchanges here
         }
-      } else { console.log('ORDER NOT PLACED, ORDER ALREADY EXISTS') }
+      } else { console.log('orderType=' + orderType, 'ORDER NOT PLACED, MAYBE ORDER ALREADY EXISTS?') }
     }
 
     const longExit = async () => {
-      if (usedBaseBalance > 0) { // only places command if there's an open position
+      if (usedBaseBalance > 0 && orderType) { // only places command if there's an open position
         switch (EXCHANGE) {
           case 'bybit':
             tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
             tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
-            console.log(await exchange.createOrder(TICKER, 'market', 'sell', usedContractQty, quotePrice, tradeParams))
+            console.log(await exchange.createOrder(TICKER, orderType, 'sell', usedContractQty, quotePrice, tradeParams))
             break
           // Add more exchanges here
         }
-      } else { console.log('CLOSE ORDER CANCELED, NO ORDER TO CLOSE') }
+      } else { console.log('orderType=' + orderType, 'CLOSE ORDER CANCELED, MAYBE NO ORDER TO CLOSE?') }
     }
 
     // Decides what action to take with the received signal
     const tradeParser = async () => {
+      const isReversal = usedBaseBalance > 0 ? true : undefined // used in reversal actions
       switch (action) {
         case 'short_entry':
           console.log('SHORT ENTRY', json)
@@ -210,15 +221,13 @@ const executeTrade = async (json) => {
           break
         case 'reverse_short_to_long':
           console.log('REVERSE SHORT TO LONG', json)
-          await shortExit()
-          .then(() => longEntry())
+          await longEntry(isReversal)
           .then(() => setBybitTslp(trailingStopLossTarget))
           .catch((error) => console.log(error))
           break
         case 'reverse_long_to_short':
           console.log('REVERSE LONG TO SHORT', json)
-          await longExit()
-          .then(() => shortEntry())
+          await shortEntry(isReversal)
           .then(() => setBybitTslp(trailingStopLossTarget))
           .catch((error) => console.log(error))
           break

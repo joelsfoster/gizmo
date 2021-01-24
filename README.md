@@ -27,6 +27,9 @@ Once environment variables are set up, simply run the bot using `node app.js` an
 {
 "auth_id": "XXXXXXXXXX",
 "action": "reverse_long_to_short",
+"order_type": "limit",
+"limit_backtrace_percent": "0.05",
+"limit_cancel_time_seconds": "10",
 "tpp": "0.3",
 "slp": "0.3",
 "leverage": "2"
@@ -40,6 +43,9 @@ Once environment variables are set up, simply run the bot using `node app.js` an
   - long_exit - Close all longs.
   - reverse_short_to_long - Closes short positions and opens a long.
   - reverse_long_to_short - Closes long positions and opens a short.
+- order_type - Required. "market" or "limit"
+- limit_backtrace_percent - Required if using limit orders. Percent backtrace from current price where to set the limit order. E.g. if price is $1000 and you set this value to ".05", limit order will be placed at $999.50 if you're going long or $1000.50 if you're going short
+- limit_cancel_time_seconds - Required if using limit orders. Number of seconds the placed limit order has to fill, or else it will be canceled. 
 - tpp - Optional. Take profit percentage, "0.3" means trigger take profit after winning .3%
 - slp - Optional. Stop loss percentage, "0.3" means trigger stop loss after losing .3%
 - tslp - Optional. Trailing stop loss percentage. NOT YET SUPPORTED!
