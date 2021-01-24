@@ -69,6 +69,19 @@ const handleTrade = (req, res) => {
   }
 }
 
+//
+// === Custom exchange methods ===
+//
+
+// ByBit's trailing stop losses can only be set on open positions
+const setBybitTslp = async (trailingStopLossTarget) => {
+  if (trailingStopLossTarget) {
+    await exchange.v2_private_post_position_trading_stop({
+      symbol: TICKER_BASE + TICKER_QUOTE,
+      trailing_stop: Math.round(trailingStopLossTarget * 100) / 100
+    })
+  }
+}
 
 //
 // === Trade execution ===
@@ -116,6 +129,7 @@ const executeTrade = async (json) => {
     }
 
     let tradeParams = handleTradeParams()
+    let trailingStopLossTarget = tslp ? quotePrice * tslp : undefined
     console.log('===')
     console.log('free', TICKER_BASE, freeBaseBalance)
     console.log('used', TICKER_BASE, usedBaseBalance)
@@ -137,6 +151,7 @@ const executeTrade = async (json) => {
         switch (EXCHANGE) {
           case 'bybit':
             tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
+            tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
             console.log(await exchange.createOrder(TICKER, 'market', 'buy', usedContractQty, quotePrice, tradeParams))
             break
           // Add more exchanges here
@@ -158,6 +173,7 @@ const executeTrade = async (json) => {
         switch (EXCHANGE) {
           case 'bybit':
             tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
+            tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
             console.log(await exchange.createOrder(TICKER, 'market', 'sell', usedContractQty, quotePrice, tradeParams))
             break
           // Add more exchanges here
@@ -170,7 +186,7 @@ const executeTrade = async (json) => {
       switch (action) {
         case 'short_entry':
           console.log('SHORT ENTRY', json)
-          await shortEntry()
+          await shortEntry().then(() => setBybitTslp(trailingStopLossTarget))
           break
         case 'short_exit':
           console.log('SHORT EXIT', json)
@@ -178,7 +194,7 @@ const executeTrade = async (json) => {
           break
         case 'long_entry':
           console.log('LONG ENTRY', json)
-          await longEntry()
+          await longEntry().then(() => setBybitTslp(trailingStopLossTarget))
           break
         case 'long_exit':
           console.log('LONG EXIT', json)
@@ -186,11 +202,13 @@ const executeTrade = async (json) => {
           break
         case 'reverse_short_to_long':
           console.log('REVERSE SHORT TO LONG', json)
-          // TODO
+          console.log('Action not yet supported')
+          // await shortExit().then(() => longEntry()) TODO MAKE SURE THIS ISNT BROKEN
           break
         case 'reverse_long_to_short':
           console.log('REVERSE LONG TO SHORT', json)
-          // TODO
+          console.log('Action not yet supported')
+          // await longExit().then(() => shortEntry()) TODO MAKE SURE THIS ISNT BROKEN
           break
         default:
           console.log('Invalid action')
