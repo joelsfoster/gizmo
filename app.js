@@ -138,12 +138,14 @@ const executeTrade = async (json) => {
     // TODO: set trailing stop loss
 
     const shortEntry = async () => {
-      switch (EXCHANGE) {
-        case 'bybit':
-          console.log(await exchange.createOrder(TICKER, 'market', 'sell', baseContractQty, quotePrice, tradeParams))
-          break
-        // Add more exchanges here
-      }
+      if (usedBaseBalance == 0) { // only places command if there's no open position
+        switch (EXCHANGE) {
+          case 'bybit':
+            console.log(await exchange.createOrder(TICKER, 'market', 'sell', baseContractQty, quotePrice, tradeParams))
+            break
+          // Add more exchanges here
+        }
+      } else { console.log('ORDER NOT PLACED, ORDER ALREADY EXISTS') }
     }
 
     const shortExit = async () => {
@@ -156,16 +158,18 @@ const executeTrade = async (json) => {
             break
           // Add more exchanges here
         }
-      }
+      } else { console.log('CLOSE ORDER CANCELED, NO ORDER TO CLOSE') }
     }
 
     const longEntry = async () => {
-      switch (EXCHANGE) {
-        case 'bybit':
-          console.log(await exchange.createOrder(TICKER, 'market', 'buy', baseContractQty, quotePrice, tradeParams))
-          break
-        // Add more exchanges here
-      }
+      if (usedBaseBalance == 0) { // only places command if there's no open position
+        switch (EXCHANGE) {
+          case 'bybit':
+            console.log(await exchange.createOrder(TICKER, 'market', 'buy', baseContractQty, quotePrice, tradeParams))
+            break
+          // Add more exchanges here
+        }
+      } else { console.log('ORDER NOT PLACED, ORDER ALREADY EXISTS') }
     }
 
     const longExit = async () => {
@@ -178,7 +182,7 @@ const executeTrade = async (json) => {
             break
           // Add more exchanges here
         }
-      }
+      } else { console.log('CLOSE ORDER CANCELED, NO ORDER TO CLOSE') }
     }
 
     // Decides what action to take with the received signal
@@ -186,7 +190,9 @@ const executeTrade = async (json) => {
       switch (action) {
         case 'short_entry':
           console.log('SHORT ENTRY', json)
-          await shortEntry().then(() => setBybitTslp(trailingStopLossTarget))
+          await shortEntry()
+          .then(() => setBybitTslp(trailingStopLossTarget))
+          .catch((error) => console.log(error))
           break
         case 'short_exit':
           console.log('SHORT EXIT', json)
@@ -194,7 +200,9 @@ const executeTrade = async (json) => {
           break
         case 'long_entry':
           console.log('LONG ENTRY', json)
-          await longEntry().then(() => setBybitTslp(trailingStopLossTarget))
+          await longEntry()
+          .then(() => setBybitTslp(trailingStopLossTarget))
+          .catch((error) => console.log(error))
           break
         case 'long_exit':
           console.log('LONG EXIT', json)
@@ -202,13 +210,17 @@ const executeTrade = async (json) => {
           break
         case 'reverse_short_to_long':
           console.log('REVERSE SHORT TO LONG', json)
-          console.log('Action not yet supported')
-          // await shortExit().then(() => longEntry()) TODO MAKE SURE THIS ISNT BROKEN
+          await shortExit()
+          .then(() => longEntry())
+          .then(() => setBybitTslp(trailingStopLossTarget))
+          .catch((error) => console.log(error))
           break
         case 'reverse_long_to_short':
           console.log('REVERSE LONG TO SHORT', json)
-          console.log('Action not yet supported')
-          // await longExit().then(() => shortEntry()) TODO MAKE SURE THIS ISNT BROKEN
+          await longExit()
+          .then(() => shortEntry())
+          .then(() => setBybitTslp(trailingStopLossTarget))
+          .catch((error) => console.log(error))
           break
         default:
           console.log('Invalid action')
