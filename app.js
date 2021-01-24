@@ -212,7 +212,7 @@ const executeTrade = async (json) => {
         case 'long_entry':
           console.log('LONG ENTRY', json)
           await longEntry()
-          .then( EXCHANGE ? 'bybit' : () => setBybitTslp(trailingStopLossTarget) )
+          .then(() => setBybitTslp(trailingStopLossTarget))
           .catch((error) => console.log(error))
           break
         case 'long_exit':
@@ -222,13 +222,13 @@ const executeTrade = async (json) => {
         case 'reverse_short_to_long':
           console.log('REVERSE SHORT TO LONG, REVERSAL=' + isReversal, json)
           await longEntry(isReversal)
-          .then(() => { EXCHANGE ? 'bybit' : setBybitTslp(trailingStopLossTarget) })
+          .then(() => setBybitTslp(trailingStopLossTarget))
           .catch((error) => console.log(error))
           break
         case 'reverse_long_to_short':
           console.log('REVERSE LONG TO SHORT, REVERSAL=' + isReversal, json)
           await shortEntry(isReversal)
-          .then(() => { EXCHANGE ? 'bybit' : setBybitTslp(trailingStopLossTarget) })
+          .then(() => setBybitTslp(trailingStopLossTarget))
           .catch((error) => console.log(error))
           break
         default:
