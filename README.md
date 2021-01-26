@@ -55,5 +55,4 @@ Once environment variables are set up, simply run the bot using `node app.js` an
 
 - Limit orders do not support trailing stop loss
 - TODO: add support for 'limit exits' instead of 'take profits'
-- Reversal actions are currently broken
-- Reversal actions are always 'market exit'. If your order type is 'limit', the reversal will be a limit entry
+- Reversal actions will always 'market exit' active positions. If your order type is 'limit', the reversal will be a limit entry
