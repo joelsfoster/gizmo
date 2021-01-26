@@ -120,18 +120,19 @@ const limitOrderFillDelay = async (orderType, limit_cancel_time_seconds) => {
 }
 
 // If using limit orders, close unfilled limit orders
-const cancelUnfilledLimitOrders = async (orderType /*, openOrderExists*/) => {
-  if (orderType == 'limit' /*&& openOrderExists == true*/) {
+const cancelUnfilledLimitOrders = async (orderType, limit_cancel_time_seconds) => {
+  if (orderType == 'limit' && limit_cancel_time_seconds) {
     // await exchange.cancelAllOrders(TICKER)
   } else { return }
 }
 
 
 // TODO add support for setting TSL on a limit order that has been filled
-// TODO FIX REVERSALS, THEYRE USING THE WRONG QTY?
 // TODO add support for limit exit instead of a TP. to do this, place a new reverse limit order at desired exit price
 // TODO limitOrderQuotePrice & orderQuotePrice are weird for limit order exit functions
 
+// Stores the last trade action so we don't get repeats
+let lastTradeAction
 
 // Execute the proper trade
 const executeTrade = async (json) => {
@@ -189,8 +190,7 @@ const executeTrade = async (json) => {
       if (orderType) {
         switch (EXCHANGE) {
           case 'bybit':
-            // TODO FIX REVERSALS (THEYRE USING THE WRONG QTY) let orderQty = openOrderExists ? usedContractQty * 2 : freeContractQty // Fully reverse position
-            let orderQty = freeContractQty
+            let orderQty = openOrderExists ? usedContractQty * 2 : freeContractQty // Fully reverse position
             console.log(await exchange.createOrder(TICKER, orderType, 'sell', orderQty, orderQuotePrice, tradeParams))
             break
           // Add more exchanges here
@@ -215,8 +215,7 @@ const executeTrade = async (json) => {
       if (orderType) {
         switch (EXCHANGE) {
           case 'bybit':
-            // TODO FIX REVERSALS (THEYRE USING THE WRONG QTY) let orderQty = openOrderExists ? usedContractQty * 2 : freeContractQty // Fully reverse position
-            let orderQty = freeContractQty
+            let orderQty = openOrderExists ? usedContractQty * 2 : freeContractQty // Fully reverse position
             console.log(await exchange.createOrder(TICKER, orderType, 'buy', orderQty, orderQuotePrice, tradeParams))
             break
           // Add more exchanges here
@@ -240,60 +239,58 @@ const executeTrade = async (json) => {
     // Decides what action to take with the received signal
     const tradeParser = async () => {
       let openOrderExists = usedBaseBalance > freeBaseBalance ? true : false // used in reversal actions
-      switch (action) {
-        case 'short_entry':
-          console.log('SHORT ENTRY', json)
-          await shortEntry()
-          .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-          .then( () => cancelUnfilledLimitOrders(orderType/*, openOrderExists*/) )
-          .then( () => setBybitTslp(trailingStopLossTarget) ) // TODO move this into the entry/exit funciton case
-          .catch( (error) => console.log(error) )
-          break
-        case 'short_exit':
-          console.log('SHORT EXIT', json)
-          await shortExit()
-          break
-        case 'long_entry':
-          console.log('LONG ENTRY', json)
-          await longEntry()
-          .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-          .then( () => cancelUnfilledLimitOrders(orderType/*, openOrderExists*/) )
-          .then( () => setBybitTslp(trailingStopLossTarget) ) // TODO move this into the entry/exit funciton case
-          .catch( (error) => console.log(error) )
-          break
-        case 'long_exit':
-          console.log('LONG EXIT', json)
-          await longExit()
-          break
-        case 'reverse_short_to_long':
-          console.log('REVERSE SHORT TO LONG, REVERSAL=' + openOrderExists, json)
-          await shortExit()
-          .then( () => longEntry() )
-          .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-          .then( () => cancelUnfilledLimitOrders(orderType/*, openOrderExists*/) )
-          .then( () => setBybitTslp(trailingStopLossTarget) ) // TODO move this into the entry/exit funciton case
-          // await longEntry(openOrderExists) // TODO FIX REVERSALS!!
-          // .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-          // .then( () => cancelUnfilledLimitOrders(orderType, openOrderExists) )
-          // .then( () => setBybitTslp(trailingStopLossTarget) ) // TODO move this into the entry/exit funciton case
-          // .catch( (error) => console.log(error) )
-          break
-        case 'reverse_long_to_short':
-          console.log('REVERSE LONG TO SHORT, REVERSAL=' + openOrderExists, json)
-          await longExit()
-          .then( () => shortEntry() )
-          .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-          .then( () => cancelUnfilledLimitOrders(orderType/*, openOrderExists*/) )
-          .then( () => setBybitTslp(trailingStopLossTarget) ) // TODO move this into the entry/exit funciton case
-          // await shortEntry(openOrderExists) // TODO FIX REVERSALS!!
-          // .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-          // .then( () => cancelUnfilledLimitOrders(orderType, openOrderExists) )
-          // .then( () => setBybitTslp(trailingStopLossTarget) ) // TODO move this into the entry/exit funciton case
-          // .catch( (error) => console.log(error) )
-          break
-        default:
-          console.log('Invalid action')
-      }
+      if (action !== lastTradeAction) { // Prevents repeat actions
+        switch (action) {
+          case 'short_entry':
+            console.log('SHORT ENTRY')
+            lastTradeAction = action
+            await shortEntry()
+            .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
+            .then( () => cancelUnfilledLimitOrders(orderType) )
+            .then( () => setBybitTslp(trailingStopLossTarget) ) // TODO move this into the entry/exit funciton case
+            .catch( (error) => console.log(error) )
+            break
+          case 'short_exit':
+            console.log('SHORT EXIT')
+            lastTradeAction = action
+            await shortExit()
+            break
+          case 'long_entry':
+            console.log('LONG ENTRY')
+            lastTradeAction = action
+            await longEntry()
+            .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
+            .then( () => cancelUnfilledLimitOrders(orderType) )
+            .then( () => setBybitTslp(trailingStopLossTarget) ) // TODO move this into the entry/exit funciton case
+            .catch( (error) => console.log(error) )
+            break
+          case 'long_exit':
+            console.log('LONG EXIT')
+            lastTradeAction = action
+            await longExit()
+            break
+          case 'reverse_short_to_long':
+            console.log('REVERSE SHORT TO LONG, REVERSAL=' + openOrderExists)
+            lastTradeAction = action
+            await longEntry(openOrderExists)
+            .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
+            .then( () => cancelUnfilledLimitOrders(orderType) )
+            .then( () => setBybitTslp(trailingStopLossTarget) ) // TODO move this into the entry/exit funciton case
+            .catch( (error) => console.log(error) )
+            break
+          case 'reverse_long_to_short':
+            console.log('REVERSE LONG TO SHORT, REVERSAL=' + openOrderExists)
+            lastTradeAction = action
+            await shortEntry(openOrderExists)
+            .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
+            .then( () => cancelUnfilledLimitOrders(orderType) )
+            .then( () => setBybitTslp(trailingStopLossTarget) ) // TODO move this into the entry/exit funciton case
+            .catch( (error) => console.log(error) )
+            break
+          default:
+            console.log('Invalid action')
+        }
+      } else { console.log('ACTION NOT TAKEN, REPEAT OF LAST ACTION')}
     }
 
     tradeParser() // Executes the correct trade
