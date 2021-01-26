@@ -119,13 +119,13 @@ const getBalances = async () => {
 const limitOrderFillDelay = async (orderType, limit_cancel_time_seconds) => {
   if (orderType == 'limit' && limit_cancel_time_seconds) {
     let limitCancelTimeMilliSeconds = limit_cancel_time_seconds * 1000
-    return // TODO time delay
+    return await new Promise(resolve => setTimeout(resolve, limitCancelTimeMilliSeconds));
   } else { return }
 }
 
 // If using limit orders, close unfilled limit orders
 const cancelUnfilledLimitOrders = async (orderType, limit_cancel_time_seconds) => {
-  if (orderType == 'limit' && limit_cancel_time_seconds) {
+  if (orderType == 'limit' && limit_cancel_time_seconds) {    
     await exchange.cancelAllOrders(TICKER)
   } else { return }
 }
@@ -264,10 +264,9 @@ const executeTrade = async (json) => {
     }
 
 
-    // 4 TODO add support for setting TSL on a limit order that has been filled
-    // 3 TODO add support for limit exit instead of a TP. to do this, place a new reverse limit order at desired exit price
-    // 2 TODO add time expiration for limit orders
-    // 1 TODO figure out why ".02" limit_backtrace_percent works but not "2"
+    // 3 TODO add support for setting TSL on a limit order that has been filled
+    // 2 TODO add support for limit exit instead of a TP. to do this, place a new reverse limit order at desired exit price
+    // 1 TODO figure out why ".02" limit_backtrace_percent works but not "2", im place orders at a way different entry price?
     // GOAL 3m swings .2% limit order exit, limit order entry, .5% stop loss
 
 
@@ -282,7 +281,7 @@ const executeTrade = async (json) => {
             await cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds)
             .then( () => shortEntry() )
             .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-            // .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+            .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
             .catch( (error) => console.log(error) )
             break
           case 'short_exit':
@@ -296,7 +295,7 @@ const executeTrade = async (json) => {
             await cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds)
             .then( () => longEntry() )
             .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-            // .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+            .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
             .catch( (error) => console.log(error) )
             break
           case 'long_exit':
@@ -312,12 +311,12 @@ const executeTrade = async (json) => {
               .then( () => shortExit() )
               .then( () => longEntry() )
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              // .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+              .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
               .catch( (error) => console.log(error) )
             } else {
               await longEntry(isReversal) // if no position, just open one. if using market orders, reverse position in one action to save on fees.
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              // .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+              .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
               .catch( (error) => console.log(error) )
             }
             break
@@ -328,12 +327,12 @@ const executeTrade = async (json) => {
               .then( () => longExit() )
               .then( () => shortEntry() )
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              // .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+              .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
               .catch( (error) => console.log(error) )
             } else {
               await shortEntry(isReversal) // if no position, just open one. if using market orders, reverse position in one action to save on fees.
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              // .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+              .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
               .catch( (error) => console.log(error) )
             }
             break
