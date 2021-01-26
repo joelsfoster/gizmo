@@ -126,7 +126,7 @@ const limitOrderFillDelay = async (orderType, limit_cancel_time_seconds) => {
 // If using limit orders, close unfilled limit orders
 const cancelUnfilledLimitOrders = async (orderType, limit_cancel_time_seconds) => {
   if (orderType == 'limit' && limit_cancel_time_seconds) {
-    // await exchange.cancelAllOrders(TICKER)
+    await exchange.cancelAllOrders(TICKER)
   } else { return }
 }
 
@@ -142,7 +142,6 @@ const executeTrade = async (json) => {
     slp = parseFloat(slp * .01) // to percent
     tslp = parseFloat(tslp * .01) // to percent
     limit_backtrace_percent = parseFloat(limit_backtrace_percent * .01) // to percent
-
 
     // Check balances and use that in the trade
     let { balances, tickerDetails, quotePrice, freeBaseBalance, usedBaseBalance } = await getBalances()
@@ -196,7 +195,22 @@ const executeTrade = async (json) => {
     }
 
     const shortExit = async () => { // All exits always do market order exits
-      if (orderType && usedBaseBalance > freeBaseBalance) {
+      if (orderType == 'limit') { // All unfilled orders closed by now. Can have an open position or not
+        let refreshedBalances = await getBalances()
+        let refreshedQuotePrice = refreshedBalances.quotePrice
+        let refreshedUsedContractQty = refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage
+        let refreshedFreeContractQty = refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage
+        if (refreshedUsedContractQty > refreshedFreeContractQty) { // If open position, close it
+          switch (EXCHANGE) {
+            case 'bybit':
+              tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
+              tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
+              await exchange.createOrder(TICKER, 'market', 'buy', refreshedUsedContractQty, refreshedQuotePrice, tradeParams)
+              break
+            // Add more exchanges here
+          }
+        } else { return }
+      } else if (orderType == 'market' && usedBaseBalance > freeBaseBalance) {
         switch (EXCHANGE) {
           case 'bybit':
             tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
@@ -222,7 +236,22 @@ const executeTrade = async (json) => {
     }
 
     const longExit = async () => { // All exits always do market order exits
-      if (orderType && usedBaseBalance > freeBaseBalance) {
+      if (orderType == 'limit') { // All unfilled orders closed by now. Can have an open position or not
+        let refreshedBalances = await getBalances()
+        let refreshedQuotePrice = refreshedBalances.quotePrice
+        let refreshedUsedContractQty = refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage
+        let refreshedFreeContractQty = refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage
+        if (refreshedUsedContractQty > refreshedFreeContractQty) { // If open position, close it
+          switch (EXCHANGE) {
+            case 'bybit':
+              tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
+              tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
+              await exchange.createOrder(TICKER, 'market', 'sell', refreshedUsedContractQty, refreshedQuotePrice, tradeParams)
+              break
+            // Add more exchanges here
+          }
+        } else { return }
+      } else if (orderType == 'market' && usedBaseBalance > freeBaseBalance) {
         switch (EXCHANGE) {
           case 'bybit':
             tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
@@ -235,13 +264,12 @@ const executeTrade = async (json) => {
     }
 
 
-    // TODO add support for setting TSL on a limit order that has been filled
-    // TODO add support for limit exit instead of a TP. to do this, place a new reverse limit order at desired exit price
-    // TODO add time expiration for limit orders
-    // TODO figure out why ".02" limit_backtrace_percent works but not "2"
+    // 4 TODO add support for setting TSL on a limit order that has been filled
+    // 3 TODO add support for limit exit instead of a TP. to do this, place a new reverse limit order at desired exit price
+    // 2 TODO add time expiration for limit orders
+    // 1 TODO figure out why ".02" limit_backtrace_percent works but not "2"
+    // GOAL 3m swings .2% limit order exit, limit order entry, .5% stop loss
 
-    // TODO what if a limit order hasnt been filled or canceled yet and a reversal action comes in?
-      // first need to cancel open orders then can proceed
 
     // Decides what action to take with the received signal
     const tradeParser = async () => {
@@ -251,55 +279,61 @@ const executeTrade = async (json) => {
         switch (action) {
           case 'short_entry':
             console.log('SHORT ENTRY')
-            await shortEntry()
+            await cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds)
+            .then( () => shortEntry() )
             .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-            .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+            // .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
             .catch( (error) => console.log(error) )
             break
           case 'short_exit':
             console.log('SHORT EXIT')
-            await shortExit()
+            await cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds)
+            .then( () => shortExit() )
             .catch( (error) => console.log(error) )
             break
           case 'long_entry':
             console.log('LONG ENTRY')
-            await longEntry()
+            await cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds)
+            .then( () => longEntry() )
             .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-            .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+            // .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
             .catch( (error) => console.log(error) )
             break
           case 'long_exit':
             console.log('LONG EXIT')
-            await longExit()
+            await cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds)
+            .then( () => longExit() )
             .catch( (error) => console.log(error) )
             break
           case 'reverse_short_to_long':
             console.log('REVERSE SHORT TO LONG, REVERSAL=' + isReversal)
             if (orderType == 'limit' && isReversal) { // if a limit order reversal, market close current order and open a new limit order
-              await shortExit()
+              await cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds)
+              .then( () => shortExit() )
               .then( () => longEntry() )
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+              // .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
               .catch( (error) => console.log(error) )
             } else {
-              await longEntry(isReversal)
+              await longEntry(isReversal) // if no position, just open one. if using market orders, reverse position in one action to save on fees.
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+              // .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
               .catch( (error) => console.log(error) )
             }
             break
           case 'reverse_long_to_short':
             console.log('REVERSE LONG TO SHORT, REVERSAL=' + isReversal)
             if (orderType == 'limit' && isReversal) { // if a limit order reversal, market close current order and open a new limit order
-              await longExit()
+              await cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds)
+              .then( () => longExit() )
               .then( () => shortEntry() )
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+              // .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
               .catch( (error) => console.log(error) )
             } else {
-              await shortEntry(isReversal)
+              await shortEntry(isReversal) // if no position, just open one. if using market orders, reverse position in one action to save on fees.
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+              // .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
               .catch( (error) => console.log(error) )
             }
             break
