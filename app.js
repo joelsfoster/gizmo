@@ -139,7 +139,7 @@ const executeTrade = async (json) => {
   try {
     // ltpp = limit take profit %, mtpp = market take profit %, slp = stop loss %, tslp = trailing stop loss %
     // IMPORTANT: LEVERAGE NEEDS TO MANUALLY BE SET IN BYBIT AS WELL!!!
-    let {action, order_type, limit_backtrace_percent, limit_cancel_time_seconds, ltpp, mtpp, slp, tslp, leverage} = json
+    let {action, override, order_type, limit_backtrace_percent, limit_cancel_time_seconds, ltpp, mtpp, slp, tslp, leverage} = json
     ltpp = parseFloat(ltpp * .01) // To percent
     mtpp = parseFloat(mtpp * .01) // To percent
     slp = parseFloat(slp * .01) // To percent
@@ -314,7 +314,7 @@ const executeTrade = async (json) => {
     // Decides what action to take with the received signal
     const tradeParser = async () => {
       let isReversal = usedBaseBalance > freeBaseBalance ? true : false // Used in reversal actions
-      if (lastTradeAction !== action) { // Prevents repeat actions
+      if (lastTradeAction !== action || override) { // Prevents repeat actions but lets you override if desired
         lastTradeAction = action // Prevents repeat actions
         switch (action) {
           case 'short_entry':
