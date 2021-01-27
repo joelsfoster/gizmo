@@ -155,8 +155,6 @@ const executeTrade = async (json) => {
     let limitOrderQuotePrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? quotePrice * (1 - limit_backtrace_percent) : quotePrice * (1 + limit_backtrace_percent)
     let orderQuotePrice = orderType == 'market' ? quotePrice : limitOrderQuotePrice // Limit orders are placed at a different price than market orders
 
-    console.log('orderType:', orderType, 'action:', action, 'limitTakeProfitPrice:', limitTakeProfitPrice, 'shortPrice:', quotePrice * (1 - ltpp), 'longPrice:', quotePrice * (1 + ltpp))
-
     // Parse params according to each exchanges' API
     const handleTradeParams = () => {
       // const timeInForce = orderType == 'limit' ? 'PostOnly' : '' // Maybe need this?
@@ -233,7 +231,6 @@ const executeTrade = async (json) => {
       let refreshedQuotePrice = refreshedBalances.quotePrice
       let refreshedUsedContractQty = refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage
       let exitOrderContractQty = freeContractQty > refreshedUsedContractQty ? freeContractQty : refreshedUsedContractQty
-      console.log('usedContractQty:', usedContractQty, 'freeContractQty:', freeContractQty, 'refreshedUsedContractQty:', refreshedUsedContractQty, 'quotePrice:', quotePrice)
       if (limitTakeProfitPrice && refreshedUsedContractQty > 0) {
         console.log('setting limit exit at', limitTakeProfitPrice + '...')
         switch (EXCHANGE) {
@@ -292,8 +289,7 @@ const executeTrade = async (json) => {
       let refreshedQuotePrice = refreshedBalances.quotePrice
       let refreshedUsedContractQty = refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage
       let refreshedFreeContractQty = refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage
-      let exitOrderContractQty = freeContractQty > refreshedUsedContractQty ? freeContractQty : refreshedUsedContractQty
-      console.log('usedContractQty:', usedContractQty, 'freeContractQty:', freeContractQty, 'refreshedUsedContractQty:', refreshedUsedContractQty, 'quotePrice:', quotePrice)
+      let exitOrderContractQty = freeContractQty > refreshedUsedContractQty ? freeContractQty : refreshedUsedContractQty      
       if (limitTakeProfitPrice && refreshedUsedContractQty > 0) {
         console.log('setting limit exit at', limitTakeProfitPrice + '...')
         switch (EXCHANGE) {
@@ -308,6 +304,7 @@ const executeTrade = async (json) => {
 
     // TODO: DRY on refreshedBalances refreshedQuotePrice refreshedFreeContractQty refreshedUsedContractQty
     // TODO figure out why ".02" limit_backtrace_percent works but not "2", im place orders at a way different entry price?
+    // TODO handle "override" orders e.g. red dot (closes) -> red x (closes) -> yellow x all in the same run
     // GOAL 3m swings .2% limit order exit, limit order entry, .5% stop loss
 
 
