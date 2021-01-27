@@ -30,7 +30,7 @@ Once environment variables are set up, simply run the bot using `node app.js` an
 "order_type": "limit",
 "limit_backtrace_percent": "0.05",
 "limit_cancel_time_seconds": "10",
-"tpp": "0.3",
+"mtpp": "0.3",
 "slp": "0.3",
 "leverage": "2"
 }
@@ -46,13 +46,13 @@ Once environment variables are set up, simply run the bot using `node app.js` an
 - order_type - Required. "market" or "limit"
 - limit_backtrace_percent - Required if using limit orders. Percent backtrace from current price where to set the limit order. E.g. if price is $1000 and you set this value to ".05", limit order will be placed at $999.50 if you're going long or $1000.50 if you're going short
 - limit_cancel_time_seconds - Required if using limit orders. Number of seconds the placed limit order has to fill, or else it will be canceled.
-- tpp - Optional. Take profit percentage, "0.3" means trigger take profit after winning .3%
-- slp - Optional. Stop loss percentage, "0.3" means trigger stop loss after losing .3%
-- tslp - Optional. Trailing stop loss percentage. NOT YET SUPPORTED!
+- ltpp - Optional. Take profit percentage using a limit order, "0.3" means an unfilled limit exit order will be placed at (current price * (1 + .3%)) if long or (current price * (1 - .3%)) if short
+- mtpp - Optional. Take profit percentage using a market order, "0.3" means a take profit market exit will immediately trigger after winning .3%
+- slp - Optional. Stop loss percentage, "0.3" means trigger market exit stop loss after losing .3%
+- tslp - Optional. Trailing stop loss percentage, "1" means 1%, so if you enter a long at $1000 it sets a TSL at $990. When the price rises to $1010, that TSL will drag up to $999.90
 - leverage - Required. What leverage you're using, "2" means 2x leverage. NEEDS TO MATCH THE SETTINGS YOU'VE MANUALLY CONFIGURED ON THE EXCHANGE.
 
 ## Current limitations
 
 - Limit orders do not support trailing stop loss
-- TODO: add support for 'limit exits' instead of 'take profits'
 - Reversal actions will always 'market exit' active positions. If your order type is 'limit', the reversal will be a limit entry
