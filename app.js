@@ -155,6 +155,8 @@ const executeTrade = async (json) => {
     let limitOrderQuotePrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? quotePrice * (1 - limit_backtrace_percent) : quotePrice * (1 + limit_backtrace_percent)
     let orderQuotePrice = orderType == 'market' ? quotePrice : limitOrderQuotePrice // Limit orders are placed at a different price than market orders
 
+    // console.log('orderType:', orderType, 'action:', action, 'limitTakeProfitPrice:', limitTakeProfitPrice, 'shortPrice:', quotePrice * (1 - ltpp), 'longPrice:', quotePrice * (1 + ltpp))
+
     // Parse params according to each exchanges' API
     const handleTradeParams = () => {
       // const timeInForce = orderType == 'limit' ? 'PostOnly' : '' // Maybe need this?
@@ -186,6 +188,7 @@ const executeTrade = async (json) => {
     console.log(TICKER, 'price', quotePrice)
 
     const shortEntry = async (isReversal) => {
+      console.log('firing off shortEntry...')
       if (orderType) {
         switch (EXCHANGE) {
           case 'bybit':
@@ -195,10 +198,11 @@ const executeTrade = async (json) => {
             break
           // Add more exchanges here
         }
-      } else { console.log('orderType=' + orderType, 'ORDER NOT PLACED, MAYBE ORDER ALREADY EXISTS?') }
+      }
     }
 
     const shortMarketExit = async () => {
+      console.log('firing off shortMarketExit...')
       if (orderType == 'limit') { // All unfilled orders closed by now. Can have an open position or not
         let refreshedBalances = await getBalances()
         let refreshedQuotePrice = refreshedBalances.quotePrice
@@ -213,8 +217,8 @@ const executeTrade = async (json) => {
               break
             // Add more exchanges here
           }
-        } else { return }
-      } else if (orderType == 'market' && usedBaseBalance > freeBaseBalance) {
+        } else { console.log('orderType=' + orderType, 'MARKET EXIT ORDER CANCELED, MAYBE NO ORDER TO CLOSE?') }
+      } else if (orderType == 'market' && usedContractQty > freeContractQty) {
         switch (EXCHANGE) {
           case 'bybit':
             tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
@@ -223,10 +227,11 @@ const executeTrade = async (json) => {
             break
           // Add more exchanges here
         }
-      } else { console.log('orderType=' + orderType, 'CLOSE ORDER CANCELED, MAYBE NO ORDER TO CLOSE?') }
+      } else { console.log('orderType=' + orderType, 'MARKET EXIT ORDER CANCELED, MAYBE NO ORDER TO CLOSE?') }
     }
 
     const setShortLimitExit = async () => {
+      console.log('firing off setShortLimitExit...')
       let refreshedBalances = await getBalances() // Once an order is placed, we need the new usedContractQty to know for setting the limit exit
       let refreshedQuotePrice = refreshedBalances.quotePrice
       let refreshedUsedContractQty = refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage
@@ -240,10 +245,11 @@ const executeTrade = async (json) => {
             break
           // Add more exchanges here
         }
-      } else { return }
+      } else { console.log('orderType=' + orderType, 'LIMIT EXIT ORDER CANCELED, MAYBE NO POSIITON TO PLACE IT ON?') }
     }
 
     const longEntry = async (isReversal) => {
+      console.log('firing off longEntry...')
       if (orderType) {
         switch (EXCHANGE) {
           case 'bybit':
@@ -253,10 +259,11 @@ const executeTrade = async (json) => {
             break
           // Add more exchanges here
         }
-      } else { console.log('orderType=' + orderType, 'ORDER NOT PLACED, MAYBE ORDER ALREADY EXISTS?') }
+      }
     }
 
     const longMarketExit = async () => {
+      console.log('firing off longMarketExit...')
       if (orderType == 'limit') { // All unfilled orders closed by now. Can have an open position or not
         let refreshedBalances = await getBalances()
         let refreshedQuotePrice = refreshedBalances.quotePrice
@@ -271,8 +278,8 @@ const executeTrade = async (json) => {
               break
             // Add more exchanges here
           }
-        } else { return }
-      } else if (orderType == 'market' && usedBaseBalance > freeBaseBalance) {
+        } else { console.log('orderType=' + orderType, 'MARKET EXIT ORDER CANCELED, MAYBE NO ORDER TO CLOSE?') }
+      } else if (orderType == 'market' && usedContractQty > freeContractQty) {
         switch (EXCHANGE) {
           case 'bybit':
             tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
@@ -281,15 +288,16 @@ const executeTrade = async (json) => {
             break
           // Add more exchanges here
         }
-      } else { console.log('orderType=' + orderType, 'CLOSE ORDER CANCELED, MAYBE NO ORDER TO CLOSE?') }
+      } else { console.log('orderType=' + orderType, 'MARKET EXIT ORDER CANCELED, MAYBE NO ORDER TO CLOSE?') }
     }
 
     const setLongLimitExit = async () => {
+      console.log('firing off setLongLimitExit...')
       let refreshedBalances = await getBalances() // Once an order is placed, we need the new usedContractQty to know for setting the limit exit
       let refreshedQuotePrice = refreshedBalances.quotePrice
       let refreshedUsedContractQty = refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage
       let refreshedFreeContractQty = refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage
-      let exitOrderContractQty = freeContractQty > refreshedUsedContractQty ? freeContractQty : refreshedUsedContractQty      
+      let exitOrderContractQty = freeContractQty > refreshedUsedContractQty ? freeContractQty : refreshedUsedContractQty
       if (limitTakeProfitPrice && refreshedUsedContractQty > 0) {
         console.log('setting limit exit at', limitTakeProfitPrice + '...')
         switch (EXCHANGE) {
@@ -299,13 +307,12 @@ const executeTrade = async (json) => {
             break
           // Add more exchanges here
         }
-      } else { return }
+      } else { console.log('orderType=' + orderType, 'LIMIT EXIT ORDER CANCELED, MAYBE NO POSITION TO PLACE IT ON?') }
     }
 
     // TODO: DRY on refreshedBalances refreshedQuotePrice refreshedFreeContractQty refreshedUsedContractQty
     // TODO figure out why ".02" limit_backtrace_percent works but not "2", im place orders at a way different entry price?
     // TODO handle "override" orders e.g. red dot (closes) -> red x (closes) -> yellow x all in the same run
-    // GOAL 3m swings .2% limit order exit, limit order entry, .5% stop loss
 
 
     // Decides what action to take with the received signal
