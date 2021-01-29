@@ -148,13 +148,17 @@ const executeTrade = async (json) => {
 
     // Check balances and use that in the trade
     let { balances, tickerDetails, quotePrice, freeBaseBalance, usedBaseBalance } = await getBalances()
-    let freeContractQty = freeBaseBalance * quotePrice * leverage * .95 // .95 so we have enough funds
-    let usedContractQty = usedBaseBalance * quotePrice * leverage
+    let freeContractQty = Math.floor(freeBaseBalance * quotePrice * leverage * .95) // .95 so we have enough funds
+    let usedContractQty = Math.floor(usedBaseBalance * quotePrice * leverage)
     let orderType = (order_type == 'market' || 'limit') ? order_type : undefined
     let limitTakeProfitPrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? quotePrice * (1 - ltpp) : quotePrice * (1 + ltpp)
     let limitOrderQuotePrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? quotePrice * (1 - limit_backtrace_percent) : quotePrice * (1 + limit_backtrace_percent)
     let orderQuotePrice = orderType == 'market' ? quotePrice : limitOrderQuotePrice // Limit orders are placed at a different price than market orders
-
+    let trailingStopLossTarget = tslp ? orderQuotePrice * tslp : undefined
+    console.log('===')
+    console.log('free', TICKER_BASE, freeBaseBalance)
+    console.log('used', TICKER_BASE, usedBaseBalance)
+    console.log(TICKER, 'price', quotePrice)
     // console.log('orderType:', orderType, 'action:', action, 'limitTakeProfitPrice:', limitTakeProfitPrice, 'shortPrice:', quotePrice * (1 - ltpp), 'longPrice:', quotePrice * (1 + ltpp))
 
     // Parse params according to each exchanges' API
@@ -180,34 +184,38 @@ const executeTrade = async (json) => {
       }
     }
 
-    let tradeParams = handleTradeParams()
-    let trailingStopLossTarget = tslp ? orderQuotePrice * tslp : undefined
-    console.log('===')
-    console.log('free', TICKER_BASE, freeBaseBalance)
-    console.log('used', TICKER_BASE, usedBaseBalance)
-    console.log(TICKER, 'price', quotePrice)
-
     const shortEntry = async (isReversal) => {
       console.log('firing off shortEntry...')
-      if (orderType) {
-        switch (EXCHANGE) {
-          case 'bybit':
-            let orderQty = isReversal ? usedContractQty * 2 : freeContractQty // Fully reverse position
+      let tradeParams = handleTradeParams()
+      switch (EXCHANGE) {
+        case 'bybit':
+          if (orderType == 'market') {
+            let orderQty = isReversal ? usedContractQty * 2 : freeContractQty // If market order, fully reverse position in one action to save on fees
             await exchange.createOrder(TICKER, orderType, 'sell', orderQty, orderQuotePrice, tradeParams)
             .then( () => setBybitTslp(trailingStopLossTarget) )
-            break
-          // Add more exchanges here
-        }
+          } else if (orderType == 'limit') { // If limit, position already closed so get new Qty amounts
+            let refreshedBalances = await getBalances()
+            let refreshedQuotePrice = refreshedBalances.quotePrice
+            let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
+            let refreshedFreeContractQty = Math.floor(refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage * .95) // .95 so we have enough funds
+            if (refreshedFreeContractQty > refreshedUsedContractQty) {
+              await exchange.createOrder(TICKER, orderType, 'sell', refreshedFreeContractQty, refreshedQuotePrice, tradeParams)
+              .then( () => setBybitTslp(trailingStopLossTarget) )
+            } else { console.log('orderType=' + orderType, 'LIMIT ENTRY ORDER CANCELED, ALREADY AN OPEN POSITION?') }
+          }
+          break
+        // Add more exchanges here
       }
     }
 
     const shortMarketExit = async () => {
       console.log('firing off shortMarketExit...')
+      let tradeParams = handleTradeParams()
       if (orderType == 'limit') { // All unfilled orders closed by now. Can have an open position or not
         let refreshedBalances = await getBalances()
         let refreshedQuotePrice = refreshedBalances.quotePrice
-        let refreshedUsedContractQty = refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage
-        let refreshedFreeContractQty = refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage
+        let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage * 1.05) // 1.05 to make sure we exit everything
+        let refreshedFreeContractQty = Math.floor(refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage * 1.05) // 1.05 to make sure we exit everything
         if (refreshedUsedContractQty > refreshedFreeContractQty) { // If open position, close it
           switch (EXCHANGE) {
             case 'bybit':
@@ -232,10 +240,11 @@ const executeTrade = async (json) => {
 
     const setShortLimitExit = async () => {
       console.log('firing off setShortLimitExit...')
+      let tradeParams = handleTradeParams()
       let refreshedBalances = await getBalances() // Once an order is placed, we need the new usedContractQty to know for setting the limit exit
       let refreshedQuotePrice = refreshedBalances.quotePrice
-      let refreshedUsedContractQty = refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage
-      let exitOrderContractQty = freeContractQty > refreshedUsedContractQty ? freeContractQty : refreshedUsedContractQty
+      let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
+      let exitOrderContractQty = freeContractQty > refreshedUsedContractQty ? freeContractQty : refreshedUsedContractQty // UNNECESSARY??
       if (limitTakeProfitPrice && refreshedUsedContractQty > 0) {
         console.log('setting limit exit at', limitTakeProfitPrice + '...')
         switch (EXCHANGE) {
@@ -250,25 +259,36 @@ const executeTrade = async (json) => {
 
     const longEntry = async (isReversal) => {
       console.log('firing off longEntry...')
-      if (orderType) {
-        switch (EXCHANGE) {
-          case 'bybit':
-            let orderQty = isReversal ? usedContractQty * 2 : freeContractQty // Fully reverse position
+      let tradeParams = handleTradeParams()
+      switch (EXCHANGE) {
+        case 'bybit':
+          if (orderType == 'market') {
+            let orderQty = isReversal ? usedContractQty * 2 : freeContractQty // If market order, fully reverse position in one action to save on fees
             await exchange.createOrder(TICKER, orderType, 'buy', orderQty, orderQuotePrice, tradeParams)
             .then( () => setBybitTslp(trailingStopLossTarget) )
-            break
-          // Add more exchanges here
-        }
+          } else if (orderType == 'limit') { // If limit, position already closed so get new Qty amounts
+            let refreshedBalances = await getBalances()
+            let refreshedQuotePrice = refreshedBalances.quotePrice
+            let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
+            let refreshedFreeContractQty = Math.floor(refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage * .95) // .95 so we have enough funds
+            if (refreshedFreeContractQty > refreshedUsedContractQty) {
+              await exchange.createOrder(TICKER, orderType, 'buy', refreshedFreeContractQty, refreshedQuotePrice, tradeParams)
+              .then( () => setBybitTslp(trailingStopLossTarget) )
+            } else { console.log('orderType=' + orderType, 'LIMIT ENTRY ORDER CANCELED, ALREADY AN OPEN POSITION?') }
+          }
+          break
+        // Add more exchanges here
       }
     }
 
     const longMarketExit = async () => {
       console.log('firing off longMarketExit...')
+      let tradeParams = handleTradeParams()
       if (orderType == 'limit') { // All unfilled orders closed by now. Can have an open position or not
         let refreshedBalances = await getBalances()
         let refreshedQuotePrice = refreshedBalances.quotePrice
-        let refreshedUsedContractQty = refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage
-        let refreshedFreeContractQty = refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage
+        let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage * 1.05) // 1.05 to make sure we exit everything
+        let refreshedFreeContractQty = Math.floor(refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage * 1.05) // 1.05 to make sure we exit everything
         if (refreshedUsedContractQty > refreshedFreeContractQty) { // If open position, close it
           switch (EXCHANGE) {
             case 'bybit':
@@ -293,11 +313,12 @@ const executeTrade = async (json) => {
 
     const setLongLimitExit = async () => {
       console.log('firing off setLongLimitExit...')
+      let tradeParams = handleTradeParams()
       let refreshedBalances = await getBalances() // Once an order is placed, we need the new usedContractQty to know for setting the limit exit
       let refreshedQuotePrice = refreshedBalances.quotePrice
-      let refreshedUsedContractQty = refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage
-      let refreshedFreeContractQty = refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage
-      let exitOrderContractQty = freeContractQty > refreshedUsedContractQty ? freeContractQty : refreshedUsedContractQty
+      let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
+      let refreshedFreeContractQty = Math.floor(refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage * .95) // .95 so we have enough funds
+      let exitOrderContractQty = freeContractQty > refreshedUsedContractQty ? freeContractQty : refreshedUsedContractQty // UNNECESSARY??
       if (limitTakeProfitPrice && refreshedUsedContractQty > 0) {
         console.log('setting limit exit at', limitTakeProfitPrice + '...')
         switch (EXCHANGE) {
