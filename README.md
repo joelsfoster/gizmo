@@ -45,6 +45,7 @@ Once environment variables are set up, simply run the bot using `node app.js` an
   - reverse_long_to_short - Closes long positions and opens a short.
 - override - Optional. true or false. If true, will allow your webhook to be placed even if the last action was the same.
 - order_type - Required. "market" or "limit"
+- current_direction - Optional. Turns on "activation direction" mode. Subsequent "open position" calls will only fire if they're in the same direction as the current_direction. E.g. You use the 3m chart to define the direction, then use the 1m chart to know when to open trades only in that direction.
 - limit_backtrace_percent - Required if using limit orders. Percent backtrace from current price where to set the limit order. E.g. if price is $1000 and you set this value to ".05", limit order will be placed at $999.50 if you're going long or $1000.50 if you're going short
 - limit_cancel_time_seconds - Required if using limit orders. Number of seconds the placed limit order has to fill, or else it will be canceled.
 - ltpp - Optional. Take profit percentage using a limit order, "0.3" means an unfilled limit exit order will be placed at (current price * (1 + .3%)) if long or (current price * (1 - .3%)) if short

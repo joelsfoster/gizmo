@@ -84,10 +84,12 @@ const handleTrade = (req, res) => {
 // ByBit's trailing stop losses can only be set on open positions
 const setBybitTslp = async (trailingStopLossTarget) => {
   if (trailingStopLossTarget && EXCHANGE == 'bybit') {
-    await exchange.v2_private_post_position_trading_stop({
-      symbol: TICKER_BASE + TICKER_QUOTE,
-      trailing_stop: Math.round(trailingStopLossTarget * 100) / 100
-    })
+    try {
+      await exchange.v2_private_post_position_trading_stop({
+        symbol: TICKER_BASE + TICKER_QUOTE,
+        trailing_stop: Math.round(trailingStopLossTarget * 100) / 100
+      })
+    } catch { return console.log('ERROR SETTING TRAILING STOP LOSS') }
   } else { return }
 }
 
@@ -131,8 +133,10 @@ const limitOrderFillDelay = async (orderType, limit_cancel_time_seconds) => {
 // If using limit orders, close unfilled limit orders
 const cancelUnfilledLimitOrders = async (orderType, limit_cancel_time_seconds) => {
   if (orderType == 'limit' && limit_cancel_time_seconds) {
-    console.log('closing unfilled orders...')
-    await exchange.cancelAllOrders(TICKER)
+    try {
+      console.log('closing unfilled orders...')
+      await exchange.cancelAllOrders(TICKER)
+    } catch { return console.log('ERROR CLOSING UNFILLED ORDERS') }
   } else { return }
 }
 
@@ -193,17 +197,21 @@ const executeTrade = async (json) => {
       switch (EXCHANGE) {
         case 'bybit':
           if (orderType == 'market') {
-            let orderQty = isReversal ? usedContractQty * 2 : freeContractQty // If market order, fully reverse position in one action to save on fees
-            await exchange.createOrder(TICKER, orderType, 'sell', orderQty, orderQuotePrice, tradeParams)
-            .then( () => setBybitTslp(trailingStopLossTarget) )
+            try {
+              let orderQty = isReversal ? usedContractQty * 2 : freeContractQty // If market order, fully reverse position in one action to save on fees
+              await exchange.createOrder(TICKER, orderType, 'sell', orderQty, orderQuotePrice, tradeParams)
+              .then( () => setBybitTslp(trailingStopLossTarget) )
+            } catch { return console.log('ERROR PLACING A SHORT MARKET ENTRY') }
           } else if (orderType == 'limit') { // If limit, position already closed so get new Qty amounts
             let refreshedBalances = await getBalances()
             let refreshedQuotePrice = refreshedBalances.quotePrice
             let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
             let refreshedFreeContractQty = Math.floor(refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage * .95) // .95 so we have enough funds
             if (refreshedFreeContractQty > refreshedUsedContractQty) {
-              await exchange.createOrder(TICKER, orderType, 'sell', refreshedFreeContractQty, refreshedQuotePrice, tradeParams)
-              .then( () => setBybitTslp(trailingStopLossTarget) )
+              try {
+                await exchange.createOrder(TICKER, orderType, 'sell', refreshedFreeContractQty, refreshedQuotePrice, tradeParams)
+                .then( () => setBybitTslp(trailingStopLossTarget) )
+              } catch { return console.log('ERROR PLACING A SHORT LIMIT ENTRY') }
             } else { console.log('orderType=' + orderType, 'LIMIT ENTRY ORDER CANCELED, ALREADY AN OPEN POSITION?') }
           }
           break
@@ -222,9 +230,11 @@ const executeTrade = async (json) => {
         if (refreshedUsedContractQty > refreshedFreeContractQty) { // If open position, close it
           switch (EXCHANGE) {
             case 'bybit':
-              tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
-              tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
-              await exchange.createOrder(TICKER, 'market', 'buy', refreshedUsedContractQty, refreshedQuotePrice, tradeParams)
+              try {
+                tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
+                tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
+                await exchange.createOrder(TICKER, 'market', 'buy', refreshedUsedContractQty, refreshedQuotePrice, tradeParams)
+              } catch { return console.log('ERROR PLACING A SHORT MARKET EXIT') }
               break
             // Add more exchanges here
           }
@@ -232,9 +242,11 @@ const executeTrade = async (json) => {
       } else if (orderType == 'market' && usedContractQty > freeContractQty) {
         switch (EXCHANGE) {
           case 'bybit':
-            tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
-            tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
-            await exchange.createOrder(TICKER, 'market', 'buy', usedContractQty, quotePrice, tradeParams)
+            try {
+              tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
+              tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
+              await exchange.createOrder(TICKER, 'market', 'buy', usedContractQty, quotePrice, tradeParams)
+            } catch { return console.log('ERROR PLACING A SHORT MARKET EXIT') }
             break
           // Add more exchanges here
         }
@@ -254,8 +266,10 @@ const executeTrade = async (json) => {
         console.log('setting limit exit at', limitTakeProfitPrice + '...')
         switch (EXCHANGE) {
           case 'bybit':
-            tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
-            await exchange.createOrder(TICKER, 'limit', 'buy', exitOrderContractQty, limitTakeProfitPrice, tradeParams)
+            try {
+              tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
+              await exchange.createOrder(TICKER, 'limit', 'buy', exitOrderContractQty, limitTakeProfitPrice, tradeParams)
+            } catch { return console.log('ERROR PLACING A SHORT LIMIT EXIT') }
             break
           // Add more exchanges here
         }
@@ -268,17 +282,21 @@ const executeTrade = async (json) => {
       switch (EXCHANGE) {
         case 'bybit':
           if (orderType == 'market') {
-            let orderQty = isReversal ? usedContractQty * 2 : freeContractQty // If market order, fully reverse position in one action to save on fees
-            await exchange.createOrder(TICKER, orderType, 'buy', orderQty, orderQuotePrice, tradeParams)
-            .then( () => setBybitTslp(trailingStopLossTarget) )
+            try {
+              let orderQty = isReversal ? usedContractQty * 2 : freeContractQty // If market order, fully reverse position in one action to save on fees
+              await exchange.createOrder(TICKER, orderType, 'buy', orderQty, orderQuotePrice, tradeParams)
+              .then( () => setBybitTslp(trailingStopLossTarget) )
+            } catch { return console.log('ERROR PLACING A LONG MARKET ENTRY') }
           } else if (orderType == 'limit') { // If limit, position already closed so get new Qty amounts
             let refreshedBalances = await getBalances()
             let refreshedQuotePrice = refreshedBalances.quotePrice
             let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
             let refreshedFreeContractQty = Math.floor(refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage * .95) // .95 so we have enough funds
             if (refreshedFreeContractQty > refreshedUsedContractQty) {
-              await exchange.createOrder(TICKER, orderType, 'buy', refreshedFreeContractQty, refreshedQuotePrice, tradeParams)
-              .then( () => setBybitTslp(trailingStopLossTarget) )
+              try {
+                await exchange.createOrder(TICKER, orderType, 'buy', refreshedFreeContractQty, refreshedQuotePrice, tradeParams)
+                .then( () => setBybitTslp(trailingStopLossTarget) )
+              } catch { return console.log('ERROR PLACING A LONG LIMIT ENTRY') }
             } else { console.log('orderType=' + orderType, 'LIMIT ENTRY ORDER CANCELED, ALREADY AN OPEN POSITION?') }
           }
           break
@@ -297,9 +315,11 @@ const executeTrade = async (json) => {
         if (refreshedUsedContractQty > refreshedFreeContractQty) { // If open position, close it
           switch (EXCHANGE) {
             case 'bybit':
-              tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
-              tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
-              await exchange.createOrder(TICKER, 'market', 'sell', refreshedUsedContractQty, refreshedQuotePrice, tradeParams)
+              try {
+                tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
+                tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
+                await exchange.createOrder(TICKER, 'market', 'sell', refreshedUsedContractQty, refreshedQuotePrice, tradeParams)
+              } catch { return console.log('ERROR PLACING A LONG MARKET EXIT') }
               break
             // Add more exchanges here
           }
@@ -307,9 +327,11 @@ const executeTrade = async (json) => {
       } else if (orderType == 'market' && usedContractQty > freeContractQty) {
         switch (EXCHANGE) {
           case 'bybit':
-            tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
-            tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
-            await exchange.createOrder(TICKER, 'market', 'sell', usedContractQty, quotePrice, tradeParams)
+            try {
+              tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
+              tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
+              await exchange.createOrder(TICKER, 'market', 'sell', usedContractQty, quotePrice, tradeParams)
+            } catch { return console.log('ERROR PLACING A LONG MARKET EXIT') }
             break
           // Add more exchanges here
         }
@@ -330,8 +352,10 @@ const executeTrade = async (json) => {
         console.log('setting limit exit at', limitTakeProfitPrice + '...')
         switch (EXCHANGE) {
           case 'bybit':
-            tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
-            await exchange.createOrder(TICKER, 'limit', 'sell', exitOrderContractQty, limitTakeProfitPrice, tradeParams)
+            try {
+              tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
+              await exchange.createOrder(TICKER, 'limit', 'sell', exitOrderContractQty, limitTakeProfitPrice, tradeParams)
+            } catch { return console.log('ERROR PLACING A LONG LIMIT EXIT') }
             break
           // Add more exchanges here
         }
