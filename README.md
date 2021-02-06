@@ -49,6 +49,7 @@ Once environment variables are set up, simply run the bot using `node app.js` an
 - limit_backtrace_percent - Required if using limit orders. Percent backtrace from current price where to set the limit order. E.g. if price is $1000 and you set this value to ".05", limit order will be placed at $999.50 if you're going long or $1000.50 if you're going short
 - limit_cancel_time_seconds - Required if using limit orders. Number of seconds the placed limit order has to fill, or else it will be canceled.
 - ltpp - Optional. Take profit percentage using a limit order, "0.3" means an unfilled limit exit order will be placed at (current price * (1 + .3%)) if long or (current price * (1 - .3%)) if short
+- ltp_let_ride_percent - Optional. MUST BE USED WITH ltpp. If present, ltpp will take profits but leave the remainder of the ltp_let_ride_percent to continue riding the trend. So if ltpp=.4 and ltp_let_ride_percent=20, then 80% of profits will be taken at .4% and the other 20% will be allowed to ride the rest of the trend.
 - mtpp - Optional. Take profit percentage using a market order, "0.3" means a take profit market exit will immediately trigger after winning .3%
 - slp - Optional. Stop loss percentage, "0.3" means trigger market exit stop loss after losing .3%
 - tslp - Optional. Trailing stop loss percentage, "1" means 1%, so if you enter a long at $1000 it sets a TSL at $990. When the price rises to $1010, that TSL will drag up to $999.90

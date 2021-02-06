@@ -179,8 +179,9 @@ const executeTrade = async (json) => {
   try {
     // ltpp = limit take profit %, mtpp = market take profit %, slp = stop loss %, tslp = trailing stop loss %
     // IMPORTANT: LEVERAGE NEEDS TO MANUALLY BE SET IN BYBIT AS WELL!!!
-    let {action, current_direction, override, order_type, limit_backtrace_percent, limit_cancel_time_seconds, ltpp, mtpp, slp, tslp, leverage} = json
+    let {action, current_direction, override, order_type, limit_backtrace_percent, limit_cancel_time_seconds, ltpp, ltp_let_ride_percent, mtpp, slp, tslp, leverage} = json
     ltpp = parseFloat(ltpp * .01) // To percent
+    ltp_let_ride_percent = parseFloat(ltp_let_ride_percent * .01) // To percent
     mtpp = parseFloat(mtpp * .01) // To percent
     slp = parseFloat(slp * .01) // To percent
     tslp = parseFloat(tslp * .01) // To percent
@@ -294,6 +295,7 @@ const executeTrade = async (json) => {
       let refreshedQuotePrice = refreshedBalances.quotePrice
       let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
       let exitOrderContractQty = freeContractQty > refreshedUsedContractQty ? freeContractQty : refreshedUsedContractQty // UNNECESSARY??
+      exitOrderContractQty = ltp_let_ride_percent ? ((1 - ltp_let_ride_percent) * exitOrderContractQty) : exitOrderContractQty // If ltp_let_ride_percent is present, exit some of the position but let the remaining stack ride the trend
       if ((currentDirection && !isReversal) && (usedContractQty > freeContractQty)) { // If using activation direction, and this is an old order, dont set limit
         console.log('Pre-existing activation direction order, no new limit exit set (keeping old limit exit)')
       } else if (limitTakeProfitPrice && refreshedUsedContractQty > 0) {
@@ -382,6 +384,7 @@ const executeTrade = async (json) => {
       let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
       let refreshedFreeContractQty = Math.floor(refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage * .95) // .95 so we have enough funds
       let exitOrderContractQty = freeContractQty > refreshedUsedContractQty ? freeContractQty : refreshedUsedContractQty // UNNECESSARY??
+      exitOrderContractQty = ltp_let_ride_percent ? ((1 - ltp_let_ride_percent) * exitOrderContractQty) : exitOrderContractQty // If ltp_let_ride_percent is present, exit some of the position but let the remaining stack ride the trend
       if ((currentDirection && !isReversal) && (usedContractQty > freeContractQty)) { // If using activation direction, and this is an old order, dont set limit
         console.log('Pre-existing activation direction order, no new limit exit set (keeping old limit exit)')
       } else if (limitTakeProfitPrice && refreshedUsedContractQty > 0) {
