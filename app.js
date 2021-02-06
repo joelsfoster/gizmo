@@ -64,18 +64,45 @@ app.post("/placeTrade", (req, res) => {
   handleTrade(req, res)
 })
 
+// Catch the webhook and handle the Bollinger Band signal
+app.post("/bbSignal", (req, res) => {
+  handleBbSignal(req, res)
+})
+
+
 // Checks first to see if the webhook carries a valid safety ID
 const handleTrade = (req, res) => {
   let json = req.body
-  if (req.body.auth_id === AUTH_ID) {
-    res.status(200).end()
+  if (json.auth_id === AUTH_ID) {
     if (json.current_direction) { currentDirection = json.current_direction } // When using activation direction
     executeTrade(json)
+    res.status(200).end()
   } else {
     console.log('401 UNAUTHORIZED', json)
     res.status(401).end()
   }
 }
+
+// Bollinger Band signals. Checks first to see if the webhook carries a valid safety ID
+const handleBbSignal = (req, res) => {
+  let json = req.body
+  if (json.auth_id === AUTH_ID) {
+    if (json.bb_signal == 'basis_breached') { bbNextTradeApproved = true }
+    if (json.bb_signal == 'lower_bound_breached') { bbNextLongApproved = true }
+    if (json.bb_signal == 'upper_bound_breached') { bbNextShortApproved = true }
+    if (json.bb_signal == 'activate') {
+      bbNextTradeApproved = true
+      bbNextLongApproved = false
+      bbNextShortApproved = false
+    }
+    console.log('bbNextTradeApproved:', bbNextTradeApproved, 'bbNextLongApproved:', bbNextLongApproved, 'bbNextShortApproved:', bbNextShortApproved)
+    res.status(200).end()
+  } else {
+    console.log('401 UNAUTHORIZED', json)
+    res.status(401).end()
+  }
+}
+
 
 //
 // === Custom exchange methods ===
@@ -99,7 +126,7 @@ const setBybitTslp = async (trailingStopLossTarget) => {
 //
 
 // Stores the last trade action so we don't get repeats
-let lastTradeAction
+let lastTradeAction = undefined
 
 // Retrieve balances from the exchange
 const getBalances = async () => {
@@ -119,7 +146,12 @@ const getBalances = async () => {
 }
 
 // When using activation direction
-let currentDirection
+let currentDirection = undefined
+
+// When using Bollinger Band signals. Middle band has to be touched to allow the next trade. The next long/short is approved if the lower/upper bands are breached
+let bbNextTradeApproved = undefined
+let bbNextLongApproved = undefined
+let bbNextShortApproved = undefined
 
 // If limit order, wait this many seconds until next async function
 const limitOrderFillDelay = async (orderType, limit_cancel_time_seconds) => {
@@ -192,31 +224,33 @@ const executeTrade = async (json) => {
     }
 
     const shortEntry = async (isReversal) => {
-      console.log('firing off shortEntry...')
-      let tradeParams = handleTradeParams()
-      switch (EXCHANGE) {
-        case 'bybit':
-          if (orderType == 'market') {
-            try {
-              let orderQty = isReversal ? usedContractQty * 2 : freeContractQty // If market order, fully reverse position in one action to save on fees
-              await exchange.createOrder(TICKER, orderType, 'sell', orderQty, orderQuotePrice, tradeParams)
-              .then( () => setBybitTslp(trailingStopLossTarget) )
-            } catch { return console.log('ERROR PLACING A SHORT MARKET ENTRY') }
-          } else if (orderType == 'limit') { // If limit, position already closed so get new Qty amounts
-            let refreshedBalances = await getBalances()
-            let refreshedQuotePrice = refreshedBalances.quotePrice
-            let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
-            let refreshedFreeContractQty = Math.floor(refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage * .95) // .95 so we have enough funds
-            if (refreshedFreeContractQty > refreshedUsedContractQty) {
+      if ((!bbNextTradeApproved || bbNextTradeApproved) && (!bbNextShortApproved || bbNextShortApproved)) { // For when using Bollinger Balds to filter allowable trades
+        console.log('firing off shortEntry...')
+        let tradeParams = handleTradeParams()
+        switch (EXCHANGE) {
+          case 'bybit':
+            if (orderType == 'market') {
               try {
-                await exchange.createOrder(TICKER, orderType, 'sell', refreshedFreeContractQty, refreshedQuotePrice, tradeParams)
-                .then( () => setBybitTslp(trailingStopLossTarget) )
-              } catch { return console.log('ERROR PLACING A SHORT LIMIT ENTRY') }
-            } else { console.log('orderType=' + orderType, 'LIMIT ENTRY ORDER CANCELED, ALREADY AN OPEN POSITION?') }
-          }
-          break
-        // Add more exchanges here
-      }
+                let orderQty = isReversal ? usedContractQty * 2 : freeContractQty // If market order, fully reverse position in one action to save on fees
+                await exchange.createOrder(TICKER, orderType, 'sell', orderQty, orderQuotePrice, tradeParams)
+              } catch { return console.log('ERROR PLACING A SHORT MARKET ENTRY') }
+            } else if (orderType == 'limit') { // If limit, position already closed so get new Qty amounts
+              let refreshedBalances = await getBalances()
+              let refreshedQuotePrice = refreshedBalances.quotePrice
+              let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
+              let refreshedFreeContractQty = Math.floor(refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage * .95) // .95 so we have enough funds
+              if (refreshedFreeContractQty > refreshedUsedContractQty) {
+                try {
+                  await exchange.createOrder(TICKER, orderType, 'sell', refreshedFreeContractQty, refreshedQuotePrice, tradeParams)
+                } catch { return console.log('ERROR PLACING A SHORT LIMIT ENTRY') }
+              } else { console.log('orderType=' + orderType, 'LIMIT ENTRY ORDER CANCELED, ALREADY AN OPEN POSITION?') }
+            }
+            break
+          // Add more exchanges here
+        if (bbNextShortApproved) { bbNextShortApproved = false } // If using Bollinger Bands, set this false after making an allowed trade
+        if (bbNextTradeApproved) { bbNextTradeApproved = false } // If using Bollinger Bands, set this false after making an allowed trade
+        }
+      } else { console.log('USING BOLLINGER BANDS TO FILTER ORDERS, SHORT ENTRY NOT PLACED. bbNextTradeApproved:', bbNextTradeApproved, 'bbNextShortApproved:', bbNextShortApproved) }
     }
 
     const shortMarketExit = async () => {
@@ -277,31 +311,33 @@ const executeTrade = async (json) => {
     }
 
     const longEntry = async (isReversal) => {
-      console.log('firing off longEntry...')
-      let tradeParams = handleTradeParams()
-      switch (EXCHANGE) {
-        case 'bybit':
-          if (orderType == 'market') {
-            try {
-              let orderQty = isReversal ? usedContractQty * 2 : freeContractQty // If market order, fully reverse position in one action to save on fees
-              await exchange.createOrder(TICKER, orderType, 'buy', orderQty, orderQuotePrice, tradeParams)
-              .then( () => setBybitTslp(trailingStopLossTarget) )
-            } catch { return console.log('ERROR PLACING A LONG MARKET ENTRY') }
-          } else if (orderType == 'limit') { // If limit, position already closed so get new Qty amounts
-            let refreshedBalances = await getBalances()
-            let refreshedQuotePrice = refreshedBalances.quotePrice
-            let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
-            let refreshedFreeContractQty = Math.floor(refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage * .95) // .95 so we have enough funds
-            if (refreshedFreeContractQty > refreshedUsedContractQty) {
+      if ((!bbNextTradeApproved || bbNextTradeApproved) && (!bbNextLongApproved || bbNextLongApproved)) { // For when using Bollinger Balds to filter allowable trades
+        console.log('firing off longEntry...')
+        let tradeParams = handleTradeParams()
+        switch (EXCHANGE) {
+          case 'bybit':
+            if (orderType == 'market') {
               try {
-                await exchange.createOrder(TICKER, orderType, 'buy', refreshedFreeContractQty, refreshedQuotePrice, tradeParams)
-                .then( () => setBybitTslp(trailingStopLossTarget) )
-              } catch { return console.log('ERROR PLACING A LONG LIMIT ENTRY') }
-            } else { console.log('orderType=' + orderType, 'LIMIT ENTRY ORDER CANCELED, ALREADY AN OPEN POSITION?') }
-          }
-          break
-        // Add more exchanges here
-      }
+                let orderQty = isReversal ? usedContractQty * 2 : freeContractQty // If market order, fully reverse position in one action to save on fees
+                await exchange.createOrder(TICKER, orderType, 'buy', orderQty, orderQuotePrice, tradeParams)
+              } catch { return console.log('ERROR PLACING A LONG MARKET ENTRY') }
+            } else if (orderType == 'limit') { // If limit, position already closed so get new Qty amounts
+              let refreshedBalances = await getBalances()
+              let refreshedQuotePrice = refreshedBalances.quotePrice
+              let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
+              let refreshedFreeContractQty = Math.floor(refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage * .95) // .95 so we have enough funds
+              if (refreshedFreeContractQty > refreshedUsedContractQty) {
+                try {
+                  await exchange.createOrder(TICKER, orderType, 'buy', refreshedFreeContractQty, refreshedQuotePrice, tradeParams)
+                } catch { return console.log('ERROR PLACING A LONG LIMIT ENTRY') }
+              } else { console.log('orderType=' + orderType, 'LIMIT ENTRY ORDER CANCELED, ALREADY AN OPEN POSITION?') }
+            }
+            break
+          // Add more exchanges here
+        if (bbNextLongApproved) { bbNextLongApproved = false } // If using Bollinger Bands, set this false after making an allowed trade
+        if (bbNextTradeApproved) { bbNextTradeApproved = false } // If using Bollinger Bands, set this false after making an allowed trade
+        }
+      } else { console.log('USING BOLLINGER BANDS TO FILTER ORDERS, LONG ENTRY NOT PLACED. bbNextTradeApproved:', bbNextTradeApproved, 'bbNextLongApproved:', bbNextLongApproved) }
     }
 
     const longMarketExit = async () => {
@@ -383,6 +419,7 @@ const executeTrade = async (json) => {
               .then( () => shortEntry() )
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
               .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+              .then( () => setBybitTslp(trailingStopLossTarget) )
               .then( () => setShortLimitExit(isReversal) )
               .catch( (error) => console.log(error) )
             } else { console.log('PREVENTED BECAUSE CURRENT DIRECTION =', currentDirection) }
@@ -400,6 +437,7 @@ const executeTrade = async (json) => {
               .then( () => longEntry() )
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
               .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+              .then( () => setBybitTslp(trailingStopLossTarget) )
               .then( () => setLongLimitExit(isReversal) )
               .catch( (error) => console.log(error) )
             } else { console.log('PREVENTED BECAUSE CURRENT DIRECTION =', currentDirection) }
@@ -419,12 +457,14 @@ const executeTrade = async (json) => {
                 .then( () => longEntry() )
                 .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
                 .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+                .then( () => setBybitTslp(trailingStopLossTarget) )
                 .then( () => setLongLimitExit(isReversal) )
                 .catch( (error) => console.log(error) )
               } else {
                 await longEntry(isReversal) // If no position, just open one. If using market orders, reverse position in one action to save on fees.
                 .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
                 .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+                .then( () => setBybitTslp(trailingStopLossTarget) )
                 .then( () => setLongLimitExit(isReversal) )
                 .catch( (error) => console.log(error) )
               }
@@ -439,12 +479,14 @@ const executeTrade = async (json) => {
                 .then( () => shortEntry() )
                 .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
                 .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+                .then( () => setBybitTslp(trailingStopLossTarget) )
                 .then( () => setShortLimitExit(isReversal) )
                 .catch( (error) => console.log(error) )
               } else {
                 await shortEntry(isReversal) // If no position, just open one. If using market orders, reverse position in one action to save on fees.
                 .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
                 .then( () => cancelUnfilledLimitOrders(orderType, limit_cancel_time_seconds) )
+                .then( () => setBybitTslp(trailingStopLossTarget) )
                 .then( () => setShortLimitExit(isReversal) )
                 .catch( (error) => console.log(error) )
               }

@@ -1,4 +1,4 @@
-# gizmo
+# Gizmo
 Crypto trading bot using the CCXT library and TradingView webhooks
 
 ## How it works
@@ -54,7 +54,18 @@ Once environment variables are set up, simply run the bot using `node app.js` an
 - tslp - Optional. Trailing stop loss percentage, "1" means 1%, so if you enter a long at $1000 it sets a TSL at $990. When the price rises to $1010, that TSL will drag up to $999.90
 - leverage - Required. What leverage you're using, "2" means 2x leverage. NEEDS TO MATCH THE SETTINGS YOU'VE MANUALLY CONFIGURED ON THE EXCHANGE.
 
+### Using Bollinger Band activation techniques
+
+You can send a webhook to `/bbSignal` with the following payload:
+
+{
+"auth_id": "XXXXXXXXXX",
+"bb_signal": "lower_bound_breached"
+}
+
+- bb_signal - Can be "lower_bound_breached", "upper_bound_breached", "basis_breached", or "activate". If the basis is breached, it allows the next trade. If the lower bound is breached and the next trade is allowed, the next long order will fire off (same but opposite for an upper bound breach). Send "activate" to turn this mode on.  
+
+
 ## Current limitations
 
-- Limit orders do not support trailing stop loss
 - Reversal actions will always 'market exit' active positions. If your order type is 'limit', the reversal will be a limit entry
