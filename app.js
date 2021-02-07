@@ -232,7 +232,7 @@ const executeTrade = async (json) => {
           case 'bybit':
             if (orderType == 'market') {
               try {
-                let orderQty = isReversal ? usedContractQty + freeContractQty : freeContractQty // If market order, fully reverse position in one action to save on fees
+                let orderQty = isReversal ? (usedContractQty + freeContractQty) : freeContractQty // If market order, fully reverse position in one action to save on fees
                 await exchange.createOrder(TICKER, orderType, 'sell', orderQty, orderQuotePrice, tradeParams)
               } catch { return console.log('ERROR PLACING A SHORT MARKET ENTRY') }
             } else if (orderType == 'limit') { // If limit, position already closed so get new Qty amounts
@@ -317,7 +317,7 @@ const executeTrade = async (json) => {
           case 'bybit':
             if (orderType == 'market') {
               try {
-                let orderQty = isReversal ? usedContractQty + freeContractQty : freeContractQty // If market order, fully reverse position in one action to save on fees
+                let orderQty = isReversal ? (usedContractQty + freeContractQty) : freeContractQty // If market order, fully reverse position in one action to save on fees
                 await exchange.createOrder(TICKER, orderType, 'buy', orderQty, orderQuotePrice, tradeParams)
               } catch { return console.log('ERROR PLACING A LONG MARKET ENTRY') }
             } else if (orderType == 'limit') { // If limit, position already closed so get new Qty amounts
