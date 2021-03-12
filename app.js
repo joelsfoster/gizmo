@@ -33,10 +33,10 @@ const TICKER_BASE = process.env.TICKER_BASE
 const TICKER_QUOTE = process.env.TICKER_QUOTE
 const TICKER = TICKER_BASE + '/' + TICKER_QUOTE
 const TEST_MODE = process.env.TEST_MODE == 'false' ? false : true
-const EXCHANGE_TESTNET_API_KEY = process.env[EXCHANGE.toUpperCase() + '_TESTNET_API_KEY']
-const EXCHANGE_TESTNET_API_SECRET = process.env[EXCHANGE.toUpperCase() + '_TESTNET_API_SECRET']
-const EXCHANGE_LIVE_API_KEY = process.env[EXCHANGE.toUpperCase() + '_API_KEY']
-const EXCHANGE_LIVE_API_SECRET = process.env[EXCHANGE.toUpperCase() + '_API_SECRET']
+const EXCHANGE_TESTNET_API_KEY = process.env[EXCHANGE.toUpperCase() + '_TESTNET_API_KEY'] ? process.env[EXCHANGE.toUpperCase() + '_TESTNET_API_KEY'] : null
+const EXCHANGE_TESTNET_API_SECRET = process.env[EXCHANGE.toUpperCase() + '_TESTNET_API_SECRET'] ? process.env[EXCHANGE.toUpperCase() + '_TESTNET_API_SECRET'] : null
+const EXCHANGE_LIVE_API_KEY = process.env[EXCHANGE.toUpperCase() + '_API_KEY'] ? process.env[EXCHANGE.toUpperCase() + '_API_KEY'] : null
+const EXCHANGE_LIVE_API_SECRET = process.env[EXCHANGE.toUpperCase() + '_API_SECRET'] ? process.env[EXCHANGE.toUpperCase() + '_API_SECRET'] : null
 const apiKey = TEST_MODE ? EXCHANGE_TESTNET_API_KEY : EXCHANGE_LIVE_API_KEY
 const apiSecret = TEST_MODE ? EXCHANGE_TESTNET_API_SECRET : EXCHANGE_LIVE_API_SECRET
 
@@ -49,9 +49,11 @@ const exchange = new ccxt[EXCHANGE.toLowerCase()] ({
 // Handle authentication in test mode
 if (TEST_MODE) {
   exchange.urls['api'] = exchange.urls['test']
-  console.log("Currently TESTING at", exchange.urls['test'])
+  console.log("Currently TESTING on", EXCHANGE)
+  if (!apiKey || !apiSecret) { console.log("WARNING: You didn't set an API key and secret for this env") }
 } else {
-  console.log("Currently LIVE at", exchange.urls['api'])
+  console.log("Currently LIVE on", EXCHANGE)
+  if (!apiKey || !apiSecret) { console.log("WARNING: You didn't set an API key and secret for this env") }
 }
 
 
