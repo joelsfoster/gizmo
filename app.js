@@ -234,12 +234,18 @@ const executeTrade = async (json) => {
             if (orderType == 'market') {
               if (usedContractQty > 0) {
                 tradeParams = {} // When market reversing, can't have stop losses
-                console.log('NOTE: Cannot set slp or mtpp with market order reversals. Use tslp and ltpp instead.')
+                if (mtpp || slp) {
+                  console.log('NOTE: Cannot set slp or mtpp with market order reversals. Use tslp and ltpp instead.')
+                }
               }
               try {
                 let orderQty = usedContractQty > 0 ? (usedContractQty * 2) - freeContractQty : freeContractQty // If market order, fully reverse position in one action to save on fees
                 await exchange.createOrder(TICKER, orderType, 'sell', orderQty, orderQuotePrice, tradeParams)
-              } catch { return console.log('ERROR PLACING A SHORT MARKET ENTRY') }
+              } catch {
+                console.log('ERROR PLACING A SHORT MARKET ENTRY: Performing emergency exit in case you were reversing')
+                await longMarketExit()
+                return
+              }
             } else if (orderType == 'limit') { // If limit, position already closed so get new Qty amounts
               let refreshedBalances = await getBalances()
               let refreshedQuotePrice = refreshedBalances.quotePrice
@@ -330,12 +336,18 @@ const executeTrade = async (json) => {
             if (orderType == 'market') {
               if (usedContractQty > 0) {
                 tradeParams = {} // When market reversing, can't have stop losses
-                console.log('NOTE: Cannot set slp or mtpp with market order reversals. Use tslp and ltpp instead.')
+                if (mtpp || slp) {
+                  console.log('NOTE: Cannot set slp or mtpp with market order reversals. Use tslp and ltpp instead.')
+                }
               }
               try {
                 let orderQty = usedContractQty > 0 ? (usedContractQty * 2) - freeContractQty : freeContractQty // If market order, fully reverse position in one action to save on fees
                 await exchange.createOrder(TICKER, orderType, 'buy', orderQty, orderQuotePrice, tradeParams)
-              } catch { return console.log('ERROR PLACING A LONG MARKET ENTRY') }
+              } catch {
+                console.log('ERROR PLACING A LONG MARKET ENTRY: Performing emergency exit in case you were reversing')
+                await shortMarketExit()
+                return
+              }
             } else if (orderType == 'limit') { // If limit, position already closed so get new Qty amounts
               let refreshedBalances = await getBalances()
               let refreshedQuotePrice = refreshedBalances.quotePrice
