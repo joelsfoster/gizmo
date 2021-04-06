@@ -366,7 +366,7 @@ const executeTrade = async (json) => {
           })
         } else { console.log('(Not using limit exits, no limit exits set)') }
       } else { console.log('Not using override_ltpp, and you have an open position: ltpp targets not replaced') }
-    }
+      }
 
     const longEntry = async () => {
         console.log('firing off longEntry...')
@@ -470,7 +470,7 @@ const executeTrade = async (json) => {
           })
         } else { console.log('(Not using limit exits, no limit exits set)') }
       } else { console.log('Not using override_ltpp, and you have an open position: ltpp targets not replaced') }
-    }
+      }
 
 
     // TODO: setting limit exits still happens on preexisting orders (it sets a new one)
