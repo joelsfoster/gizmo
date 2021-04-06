@@ -152,6 +152,20 @@ const handleTrade = (req, res) => {
   }
 }
 
+    //Update TradeHistory File
+    tradeHistoryFile = readTradeHistoryFile()
+    tradeRecord.tradeTime = new Date()
+    console.log(tradeRecord)
+    tradeHistoryFile.trades.push(tradeRecord)
+    writeTradeHistoryFile(tradeHistoryFile)
+
+    res.status(200).end()
+  } else {
+    console.log('401 UNAUTHORIZED', json)
+    res.status(401).end()
+  }
+}
+
 
 //
 // === Custom exchange methods ===
