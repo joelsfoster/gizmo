@@ -305,7 +305,7 @@ const executeTrade = async (json) => {
         let refreshedBalances = await getBalances() // Once an order is placed, we need the new usedContractQty to know for setting the limit exit
         let refreshedQuotePrice = refreshedBalances.quotePrice
         let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
-        if (ltpp.length > 0) {
+        if (ltpp && ltpp.length > 0) {
           ltpp.forEach( async (limitTakeProfitValue) => { // Passes in the value in the array, e.g. 0.2
             let limitTakeProfitPercent = parseFloat(limitTakeProfitValue * .01) // Convert the value to percent
             let limitTakeProfitPrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? refreshedQuotePrice * (1 - limitTakeProfitPercent) : refreshedQuotePrice * (1 + limitTakeProfitPercent)
@@ -407,7 +407,7 @@ const executeTrade = async (json) => {
         let refreshedBalances = await getBalances() // Once an order is placed, we need the new usedContractQty to know for setting the limit exit
         let refreshedQuotePrice = refreshedBalances.quotePrice
         let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
-        if (ltpp.length > 0) {
+        if (ltpp && ltpp.length > 0) {
           ltpp.forEach( async (limitTakeProfitValue) => { // Passes in the value in the array, e.g. 0.2
             let limitTakeProfitPercent = parseFloat(limitTakeProfitValue * .01) // Convert the value to percent
             let limitTakeProfitPrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? refreshedQuotePrice * (1 - limitTakeProfitPercent) : refreshedQuotePrice * (1 + limitTakeProfitPercent)
