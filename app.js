@@ -6,8 +6,9 @@
 
 const express = require('express')
 const bodyParser = require('body-parser')
-const ccxt = require ('ccxt')
+const ccxt = require('ccxt')
 const dotenv = require('dotenv')
+const fs = require('fs');
 
 //
 // === Setup, config, and exchange initialization ===
@@ -20,6 +21,9 @@ dotenv.config()
 const app = express().use(bodyParser.json())
 const PORT = process.env.PORT
 
+//Host UI in public folder
+app.use(express.static('public'));
+
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`)
 })
@@ -29,19 +33,20 @@ const AUTH_ID = process.env.AUTH_ID
 
 // Set the exchange according to the CCXT ID https://github.com/ccxt/ccxt/wiki/Manual
 const EXCHANGE = process.env.EXCHANGE
-const TICKER_BASE = process.env.TICKER_BASE
-const TICKER_QUOTE = process.env.TICKER_QUOTE
+TICKER_BASE = process.env.TICKER_BASE
+TICKER_QUOTE = process.env.TICKER_QUOTE
 const TICKER = TICKER_BASE + '/' + TICKER_QUOTE
-const TEST_MODE = process.env.TEST_MODE == 'false' ? false : true
+TEST_MODE = process.env.TEST_MODE == 'false' ? false : true
 const EXCHANGE_TESTNET_API_KEY = process.env[EXCHANGE.toUpperCase() + '_TESTNET_API_KEY'] ? process.env[EXCHANGE.toUpperCase() + '_TESTNET_API_KEY'] : null
 const EXCHANGE_TESTNET_API_SECRET = process.env[EXCHANGE.toUpperCase() + '_TESTNET_API_SECRET'] ? process.env[EXCHANGE.toUpperCase() + '_TESTNET_API_SECRET'] : null
 const EXCHANGE_LIVE_API_KEY = process.env[EXCHANGE.toUpperCase() + '_API_KEY'] ? process.env[EXCHANGE.toUpperCase() + '_API_KEY'] : null
 const EXCHANGE_LIVE_API_SECRET = process.env[EXCHANGE.toUpperCase() + '_API_SECRET'] ? process.env[EXCHANGE.toUpperCase() + '_API_SECRET'] : null
 const apiKey = TEST_MODE ? EXCHANGE_TESTNET_API_KEY : EXCHANGE_LIVE_API_KEY
 const apiSecret = TEST_MODE ? EXCHANGE_TESTNET_API_SECRET : EXCHANGE_LIVE_API_SECRET
+tradeRecord = {}
 
 // Instantiate the exchange
-const exchange = new ccxt[EXCHANGE.toLowerCase()] ({
+const exchange = new ccxt['bybit']({
   apiKey: apiKey,
   secret: apiSecret
 })
@@ -76,12 +81,76 @@ app.post("/test", (req, res) => {
   console.log(req.body)
 })
 
+//Get Bot Setup
+app.get('/getBotSetup', (req, res) => {
+  var botSetup = {
+    exchange: EXCHANGE,
+    ticker_base: TICKER_BASE,
+    ticker_quote: TICKER_QUOTE,
+    test_mode: TEST_MODE
+  };
+  res.send(botSetup)
+})
+
+
+//Update Bot Settings
+app.post('/updateBotSetup', (req, res) => {
+  TICKER_BASE = req.body.ticker_base;
+  TICKER_QUOTE = req.body.ticker_quote;
+  TEST_MODE = req.body.test_mode;
+})
+
+//Get Trade History
+app.get('/getTrades', (req, res) => {
+  let tradeFile = readTradeHistoryFile()
+  if(tradeFile.trades)
+  {
+    res.send(tradeFile.trades)
+  }
+})
+
+
+//Read Trade History Data File
+const readTradeHistoryFile = () => {
+  if(fs.existsSync('data.json'))
+  {
+    var file = fs.readFileSync('data.json');
+    let tradeHistory = JSON.parse(file);
+    return(tradeHistory)
+
+  }else {
+    return {trades:[]};
+  }
+
+}
+
+//Write Trade History Data File
+const writeTradeHistoryFile = (tradeHistoryObj) => {
+  let data = JSON.stringify(tradeHistoryObj);
+
+  fs.writeFile('data.json', data, (err) => {
+    if (err) throw err;
+    console.log('Data written to file');
+  });
+
+}
+
+
 // Checks first to see if the webhook carries a valid safety ID
 const handleTrade = (req, res) => {
   let json = req.body
+  tradeRecord = json
   if (json.auth_id === AUTH_ID) {
     if (json.current_direction) { currentDirection = json.current_direction } // When using activation direction
     executeTrade(json)
+
+    //Update TradeHistory File
+    tradeHistoryFile = readTradeHistoryFile()
+    tradeRecord.tradeTime = new Date()
+    console.log(tradeRecord)
+    tradeHistoryFile.trades.push(tradeRecord)
+    writeTradeHistoryFile(tradeHistoryFile)
+
     res.status(200).end()
   } else {
     console.log('401 UNAUTHORIZED', json)
@@ -90,7 +159,7 @@ const handleTrade = (req, res) => {
 }
 
 // Bollinger Band signals. Checks first to see if the webhook carries a valid safety ID
-const handleBbSignal = (req, res) => {
+const handleBbSignal = () => {
   let json = req.body
   if (json.auth_id === AUTH_ID) {
     if (json.bb_signal == 'basis_breached') { bbNextTradeApproved = true }
@@ -122,7 +191,7 @@ const setBybitTslp = async (trailingStopLossTarget) => {
         symbol: TICKER_BASE + TICKER_QUOTE,
         trailing_stop: Math.round(trailingStopLossTarget * 100) / 100
       })
-    } catch { return console.log('ERROR SETTING TRAILING STOP LOSS') }
+    } catch (error) { return console.log('ERROR SETTING TRAILING STOP LOSS') }
   } else { return }
 }
 
@@ -173,7 +242,7 @@ const cancelUnfilledLimitOrders = async () => {
   try {
     console.log('closing unfilled orders...')
     await exchange.cancelAllOrders(TICKER)
-  } catch { return console.log('ERROR CLOSING UNFILLED ORDERS') }
+  } catch (error) { return console.log('ERROR CLOSING UNFILLED ORDERS') }
 }
 
 // Execute the proper trade
@@ -183,7 +252,7 @@ const executeTrade = async (json) => {
   try {
     // ltpp = limit take profit %, mtpp = market take profit %, slp = stop loss %, tslp = trailing stop loss %
     // IMPORTANT: LEVERAGE NEEDS TO MANUALLY BE SET IN BYBIT AS WELL!!!
-    let {action, current_direction, override, order_type, limit_backtrace_percent, limit_cancel_time_seconds, ltpp, mtpp, slp, tslp, leverage} = json
+    let { action, current_direction, override, order_type, limit_backtrace_percent, limit_cancel_time_seconds, ltpp, mtpp, slp, tslp, leverage } = json
     mtpp = parseFloat(mtpp * .01) // To percent
     slp = parseFloat(slp * .01) // To percent
     tslp = parseFloat(tslp * .01) // To percent
@@ -201,6 +270,7 @@ const executeTrade = async (json) => {
     console.log('free', TICKER_BASE, freeBaseBalance)
     console.log('used', TICKER_BASE, usedBaseBalance)
     console.log(TICKER, 'price', quotePrice)
+    tradeRecord.enterPrice = quotePrice
 
     // Parse params according to each exchanges' API
     const handleTradeParams = () => {
@@ -241,7 +311,7 @@ const executeTrade = async (json) => {
               try {
                 let orderQty = usedContractQty > 0 ? (usedContractQty * 2) - freeContractQty : freeContractQty // If market order, fully reverse position in one action to save on fees
                 await exchange.createOrder(TICKER, orderType, 'sell', orderQty, orderQuotePrice, tradeParams)
-              } catch {
+              } catch (error) {
                 console.log('ERROR PLACING A SHORT MARKET ENTRY: Performing emergency exit in case you were reversing')
                 await longMarketExit()
                 return
@@ -253,13 +323,13 @@ const executeTrade = async (json) => {
               if (refreshedFreeContractQty > 0) {
                 try {
                   await exchange.createOrder(TICKER, orderType, 'sell', refreshedFreeContractQty, refreshedQuotePrice, tradeParams)
-                } catch { return console.log('ERROR PLACING A SHORT LIMIT ENTRY') }
+                } catch (error) { return console.log('ERROR PLACING A SHORT LIMIT ENTRY') }
               } else { console.log('orderType=' + orderType, 'LIMIT ENTRY ORDER CANCELED, ALREADY AN OPEN POSITION?') }
             }
             break
-          // Add more exchanges here
-        if (bbNextShortApproved) { bbNextShortApproved = false } // If using Bollinger Bands, set this false after making an allowed trade
-        if (bbNextTradeApproved) { bbNextTradeApproved = false } // If using Bollinger Bands, set this false after making an allowed trade
+            // Add more exchanges here
+            if (bbNextShortApproved) { bbNextShortApproved = false } // If using Bollinger Bands, set this false after making an allowed trade
+            if (bbNextTradeApproved) { bbNextTradeApproved = false } // If using Bollinger Bands, set this false after making an allowed trade
         }
       } else { console.log('USING BOLLINGER BANDS TO FILTER ORDERS, SHORT ENTRY NOT PLACED. bbNextTradeApproved:', bbNextTradeApproved, 'bbNextShortApproved:', bbNextShortApproved) }
     }
@@ -278,7 +348,7 @@ const executeTrade = async (json) => {
                 tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
                 tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
                 await exchange.createOrder(TICKER, 'market', 'buy', refreshedUsedContractQty, refreshedQuotePrice, tradeParams)
-              } catch { return console.log('ERROR PLACING A SHORT MARKET EXIT') }
+              } catch (error) { return console.log('ERROR PLACING A SHORT MARKET EXIT') }
               break
             // Add more exchanges here
           }
@@ -290,7 +360,7 @@ const executeTrade = async (json) => {
               tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
               tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
               await exchange.createOrder(TICKER, 'market', 'buy', usedContractQty, quotePrice, tradeParams)
-            } catch { return console.log('ERROR PLACING A SHORT MARKET EXIT') }
+            } catch (error) { return console.log('ERROR PLACING A SHORT MARKET EXIT') }
             break
           // Add more exchanges here
         }
@@ -306,7 +376,7 @@ const executeTrade = async (json) => {
         let refreshedQuotePrice = refreshedBalances.quotePrice
         let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
         if (ltpp && ltpp.length > 0) {
-          ltpp.forEach( async (limitTakeProfitValue) => { // Passes in the value in the array, e.g. 0.2
+          ltpp.forEach(async (limitTakeProfitValue) => { // Passes in the value in the array, e.g. 0.2
             let limitTakeProfitPercent = parseFloat(limitTakeProfitValue * .01) // Convert the value to percent
             let limitTakeProfitPrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? refreshedQuotePrice * (1 - limitTakeProfitPercent) : refreshedQuotePrice * (1 + limitTakeProfitPercent)
             let exitOrderContractQty = Math.floor(refreshedUsedContractQty / ltpp.length) // Evenly distribute limit take profit targets
@@ -317,7 +387,7 @@ const executeTrade = async (json) => {
                   try {
                     tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
                     await exchange.createOrder(TICKER, 'limit', 'buy', exitOrderContractQty, limitTakeProfitPrice, tradeParams)
-                  } catch { return console.log('ERROR PLACING A SHORT LIMIT EXIT') }
+                  } catch (error) { return console.log('ERROR PLACING A SHORT LIMIT EXIT') }
                   break
                 // Add more exchanges here
               }
@@ -343,7 +413,7 @@ const executeTrade = async (json) => {
               try {
                 let orderQty = usedContractQty > 0 ? (usedContractQty * 2) - freeContractQty : freeContractQty // If market order, fully reverse position in one action to save on fees
                 await exchange.createOrder(TICKER, orderType, 'buy', orderQty, orderQuotePrice, tradeParams)
-              } catch {
+              } catch (error) {
                 console.log('ERROR PLACING A LONG MARKET ENTRY: Performing emergency exit in case you were reversing')
                 await shortMarketExit()
                 return
@@ -355,13 +425,13 @@ const executeTrade = async (json) => {
               if (refreshedFreeContractQty > 0) {
                 try {
                   await exchange.createOrder(TICKER, orderType, 'buy', refreshedFreeContractQty, refreshedQuotePrice, tradeParams)
-                } catch { return console.log('ERROR PLACING A LONG LIMIT ENTRY') }
+                } catch (error) { return console.log('ERROR PLACING A LONG LIMIT ENTRY') }
               } else { console.log('orderType=' + orderType, 'LIMIT ENTRY ORDER CANCELED, ALREADY AN OPEN POSITION?') }
             }
             break
-          // Add more exchanges here
-        if (bbNextLongApproved) { bbNextLongApproved = false } // If using Bollinger Bands, set this false after making an allowed trade
-        if (bbNextTradeApproved) { bbNextTradeApproved = false } // If using Bollinger Bands, set this false after making an allowed trade
+            // Add more exchanges here
+            if (bbNextLongApproved) { bbNextLongApproved = false } // If using Bollinger Bands, set this false after making an allowed trade
+            if (bbNextTradeApproved) { bbNextTradeApproved = false } // If using Bollinger Bands, set this false after making an allowed trade
         }
       } else { console.log('USING BOLLINGER BANDS TO FILTER ORDERS, LONG ENTRY NOT PLACED. bbNextTradeApproved:', bbNextTradeApproved, 'bbNextLongApproved:', bbNextLongApproved) }
     }
@@ -380,7 +450,7 @@ const executeTrade = async (json) => {
                 tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
                 tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
                 await exchange.createOrder(TICKER, 'market', 'sell', refreshedUsedContractQty, refreshedQuotePrice, tradeParams)
-              } catch { return console.log('ERROR PLACING A LONG MARKET EXIT') }
+              } catch (error) { return console.log('ERROR PLACING A LONG MARKET EXIT') }
               break
             // Add more exchanges here
           }
@@ -392,7 +462,7 @@ const executeTrade = async (json) => {
               tradeParams.reduce_only = true // In bybit, must make a 'counter order' to close out open positions
               tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
               await exchange.createOrder(TICKER, 'market', 'sell', usedContractQty, quotePrice, tradeParams)
-            } catch { return console.log('ERROR PLACING A LONG MARKET EXIT') }
+            } catch (error) { return console.log('ERROR PLACING A LONG MARKET EXIT') }
             break
           // Add more exchanges here
         }
@@ -408,7 +478,7 @@ const executeTrade = async (json) => {
         let refreshedQuotePrice = refreshedBalances.quotePrice
         let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
         if (ltpp && ltpp.length > 0) {
-          ltpp.forEach( async (limitTakeProfitValue) => { // Passes in the value in the array, e.g. 0.2
+          ltpp.forEach(async (limitTakeProfitValue) => { // Passes in the value in the array, e.g. 0.2
             let limitTakeProfitPercent = parseFloat(limitTakeProfitValue * .01) // Convert the value to percent
             let limitTakeProfitPrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? refreshedQuotePrice * (1 - limitTakeProfitPercent) : refreshedQuotePrice * (1 + limitTakeProfitPercent)
             let exitOrderContractQty = Math.floor(refreshedUsedContractQty / ltpp.length) // Evenly distribute limit take profit targets
@@ -419,7 +489,7 @@ const executeTrade = async (json) => {
                   try {
                     tradeParams.close_on_trigger = true // In bybit, must make a 'counter order' to close out open positions
                     await exchange.createOrder(TICKER, 'limit', 'sell', exitOrderContractQty, limitTakeProfitPrice, tradeParams)
-                  } catch { return console.log('ERROR PLACING A SHORT LIMIT EXIT') }
+                  } catch (error) { return console.log('ERROR PLACING A SHORT LIMIT EXIT') }
                   break
                 // Add more exchanges here
               }
@@ -446,72 +516,72 @@ const executeTrade = async (json) => {
             console.log('SHORT ENTRY, EXISTING ORDER')
             if (!currentDirection || currentDirection == 'short') { // Check when using activation direction
               await cancelUnfilledLimitOrders()
-              .then( () => shortEntry() )
-              .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              .then( () => cancelUnfilledLimitOrders() )
-              .then( () => setBybitTslp(trailingStopLossTarget) )
-              .then( () => setShortLimitExit() )
-              .catch( (error) => console.log(error) )
+                .then(() => shortEntry())
+                .then(() => limitOrderFillDelay(orderType, limit_cancel_time_seconds))
+                .then(() => cancelUnfilledLimitOrders())
+                .then(() => setBybitTslp(trailingStopLossTarget))
+                .then(() => setShortLimitExit())
+                .catch((error) => console.log(error))
             } else { console.log('PREVENTED BECAUSE CURRENT DIRECTION =', currentDirection) }
             break
           case 'short_exit':
             console.log('SHORT MARKET EXIT')
             await cancelUnfilledLimitOrders()
-            .then( () => shortMarketExit() )
-            .catch( (error) => console.log(error) )
+              .then(() => shortMarketExit())
+              .catch((error) => console.log(error))
             break
           case 'long_entry':
             console.log('LONG ENTRY, EXISTING ORDER')
             if (!currentDirection || currentDirection == 'long') { // Check when using activation direction
               await cancelUnfilledLimitOrders()
-              .then( () => longEntry() )
-              .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              .then( () => cancelUnfilledLimitOrders() )
-              .then( () => setBybitTslp(trailingStopLossTarget) )
-              .then( () => setLongLimitExit() )
-              .catch( (error) => console.log(error) )
+                .then(() => longEntry())
+                .then(() => limitOrderFillDelay(orderType, limit_cancel_time_seconds))
+                .then(() => cancelUnfilledLimitOrders())
+                .then(() => setBybitTslp(trailingStopLossTarget))
+                .then(() => setLongLimitExit())
+                .catch((error) => console.log(error))
             } else { console.log('PREVENTED BECAUSE CURRENT DIRECTION =', currentDirection) }
             break
           case 'long_exit':
             console.log('LONG MARKET EXIT')
             await cancelUnfilledLimitOrders()
-            .then( () => longMarketExit() )
-            .catch( (error) => console.log(error) )
+              .then(() => longMarketExit())
+              .catch((error) => console.log(error))
             break
           case 'reverse_short_to_long':
             console.log('REVERSE SHORT TO LONG')
             if (!currentDirection || currentDirection == 'long') { // Check when using activation direction
               await cancelUnfilledLimitOrders()
-              .then( () => { action == 'limit' ? shortMarketExit() : Promise.resolve() } ) // Market orders conduct exit+entry in one action, while limits use 2 actions
-              .then( () => longEntry() )
-              .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              .then( () => cancelUnfilledLimitOrders() )
-              .then( () => setBybitTslp(trailingStopLossTarget) )
-              .then( () => setLongLimitExit() )
-              .catch( (error) => console.log(error) )
+                .then(() => { action == 'limit' ? shortMarketExit() : Promise.resolve() }) // Market orders conduct exit+entry in one action, while limits use 2 actions
+                .then(() => longEntry())
+                .then(() => limitOrderFillDelay(orderType, limit_cancel_time_seconds))
+                .then(() => cancelUnfilledLimitOrders())
+                .then(() => setBybitTslp(trailingStopLossTarget))
+                .then(() => setLongLimitExit())
+                .catch((error) => console.log(error))
             } else { console.log('PREVENTED BECAUSE CURRENT DIRECTION =', currentDirection) }
             break
           case 'reverse_long_to_short':
             console.log('REVERSE LONG TO SHORT')
             if (!currentDirection || currentDirection == 'short') { // Check when using activation direction
               await cancelUnfilledLimitOrders()
-              .then( () => { action == 'limit' ? longMarketExit() : Promise.resolve() } ) // Market orders conduct exit+entry in one action, while limits use 2 actions
-              .then( () => shortEntry() )
-              .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              .then( () => cancelUnfilledLimitOrders() )
-              .then( () => setBybitTslp(trailingStopLossTarget) )
-              .then( () => setShortLimitExit() )
-              .catch( (error) => console.log(error) )
+                .then(() => { action == 'limit' ? longMarketExit() : Promise.resolve() }) // Market orders conduct exit+entry in one action, while limits use 2 actions
+                .then(() => shortEntry())
+                .then(() => limitOrderFillDelay(orderType, limit_cancel_time_seconds))
+                .then(() => cancelUnfilledLimitOrders())
+                .then(() => setBybitTslp(trailingStopLossTarget))
+                .then(() => setShortLimitExit())
+                .catch((error) => console.log(error))
             } else { console.log('PREVENTED BECAUSE CURRENT DIRECTION =', currentDirection) }
             break
           default:
-            console.log('Invalid action (or, you manually set direction:', currentDirection +')')
+            console.log('Invalid action (or, you manually set direction:', currentDirection + ')')
         }
-      } else { console.log('ACTION', action, 'NOT TAKEN, REPEAT OF LAST ACTION (or, you manually set direction:', currentDirection +')') }
+      } else { console.log('ACTION', action, 'NOT TAKEN, REPEAT OF LAST ACTION (or, you manually set direction:', currentDirection + ')') }
     }
 
     tradeParser() // Executes the correct trade
-  } catch(error) {
+  } catch (error) {
     console.log('EXECUTETRADE ERROR:', error)
   }
 }
