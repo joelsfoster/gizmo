@@ -19,7 +19,7 @@ Then, set your environment variables:
 
 **You must ensure your leverage settings on the exchange match your webhooks' leverage settings!**
 
-Once environment variables are set up, simply run the bot using `node app.js` and watch trades get placed based on your webhooks.
+Once environment variables are set up, simply run the bot using `npm run build-app` and watch trades get placed based on your webhooks.
 
 
 ## TradingView webhook formatting
@@ -70,3 +70,7 @@ You can send a webhook to `/bbSignal` with the following payload:
 ## Current limitations
 
 - Reversal actions will always 'market exit' active positions. If your order type is 'limit', the reversal will be a limit entry
+
+## Gizmo UI Setup
+
+- Configure the /client/public/config.json with the URL to your Bot
