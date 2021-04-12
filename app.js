@@ -482,7 +482,7 @@ const executeTrade = async (json) => {
             console.log('REVERSE SHORT TO LONG')
             if (!currentDirection || currentDirection == 'long') { // Check when using activation direction
               await cancelUnfilledLimitOrders()
-              .then( () => { action == 'limit' ? shortMarketExit() : Promise.resolve() } ) // Market orders conduct exit+entry in one action, while limits use 2 actions
+              .then( () => { order_type == 'limit' ? shortMarketExit() : Promise.resolve() } ) // Market orders conduct exit+entry in one action, while limits use 2 actions
               .then( () => longEntry() )
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
               .then( () => cancelUnfilledLimitOrders() )
@@ -495,7 +495,7 @@ const executeTrade = async (json) => {
             console.log('REVERSE LONG TO SHORT')
             if (!currentDirection || currentDirection == 'short') { // Check when using activation direction
               await cancelUnfilledLimitOrders()
-              .then( () => { action == 'limit' ? longMarketExit() : Promise.resolve() } ) // Market orders conduct exit+entry in one action, while limits use 2 actions
+              .then( () => { order_type == 'limit' ? longMarketExit() : Promise.resolve() } ) // Market orders conduct exit+entry in one action, while limits use 2 actions
               .then( () => shortEntry() )
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
               .then( () => cancelUnfilledLimitOrders() )
