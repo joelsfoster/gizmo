@@ -14,7 +14,8 @@
   "devDependencies": {},
   "scripts": {
     "build-app": "npm run build-client && npm install && npm start",
-    "build-client": "mkdir public && cd client && npm run build-app && cd ..",
+    "clean-app": "if exist public rmdir /s /q public",
+    "build-client": "cd client && npm run build-app && cd ..",
     "start": "node app.js"
   },
   "repository": {
