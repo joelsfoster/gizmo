@@ -190,7 +190,7 @@ export default {
   methods: {
     async sendTestLong() {
       var alert = {
-        auth_id: "Omega!23",
+        auth_id: "testId",
         action: "reverse_short_to_long",
         ltpp: [1.0],
         order_type: "market",
@@ -209,7 +209,7 @@ export default {
     },
     async sendTestShort() {
       var alert = {
-        auth_id: "Omega!23",
+        auth_id: "testId",
         action: "reverse_long_to_short",
         ltpp: [0.65],
         tslp: "4.5",
