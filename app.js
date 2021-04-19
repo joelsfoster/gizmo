@@ -252,7 +252,7 @@ const executeTrade = async (json) => {
   try {
     // ltpp = limit take profit %, mtpp = market take profit %, slp = stop loss %, tslp = trailing stop loss %
     // IMPORTANT: LEVERAGE NEEDS TO MANUALLY BE SET IN BYBIT AS WELL!!!
-    let {action, current_direction, override, override_ltpp, order_type, limit_backtrace_percent, limit_cancel_time_seconds, ltpp, mtpp, slp, tslp, leverage} = json
+    let { action, current_direction, override, order_type, limit_backtrace_percent, limit_cancel_time_seconds, ltpp, mtpp, slp, tslp, leverage } = json
     mtpp = parseFloat(mtpp * .01) // To percent
     slp = parseFloat(slp * .01) // To percent
     tslp = parseFloat(tslp * .01) // To percent
@@ -367,8 +367,7 @@ const executeTrade = async (json) => {
       } else { console.log('orderType=' + orderType, 'MARKET EXIT ORDER CANCELED, MAYBE NO ORDER TO CLOSE?') }
     }
 
-    const setShortLimitExit = async (override_ltpp) => {
-      if (override_ltpp || (override_ltpp == undefined && freeContractQty > usedContractQty) ) { // If not using override_ltpp, will not set new ltpp targets if a new order comes in when a position is already open
+    const setShortLimitExit = async () => {
       if (currentDirection && (usedContractQty > 0)) { // If using activation direction, and this is an old order, dont set limit
         console.log('Pre-existing activation direction order, no new limit exit set (keeping old limit exit)')
       } else {
@@ -377,9 +376,9 @@ const executeTrade = async (json) => {
         let refreshedQuotePrice = refreshedBalances.quotePrice
         let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
         if (ltpp && ltpp.length > 0) {
-            ltpp.forEach( async (limitTakeProfitValue) => { // Passes in the value in the array, e.g. 0.2
+          ltpp.forEach(async (limitTakeProfitValue) => { // Passes in the value in the array, e.g. 0.2
             let limitTakeProfitPercent = parseFloat(limitTakeProfitValue * .01) // Convert the value to percent
-              let limitTakeProfitPrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? orderQuotePrice * (1 - limitTakeProfitPercent) : orderQuotePrice * (1 + limitTakeProfitPercent) // TP values are based off entry price, not price at time of limit_cancel_time_seconds
+            let limitTakeProfitPrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? refreshedQuotePrice * (1 - limitTakeProfitPercent) : refreshedQuotePrice * (1 + limitTakeProfitPercent)
             let exitOrderContractQty = Math.floor(refreshedUsedContractQty / ltpp.length) // Evenly distribute limit take profit targets
             if (refreshedUsedContractQty > 0) {
               console.log('setting limit exit at', limitTakeProfitPrice, 'using', exitOrderContractQty, 'contracts: about', ((1 / ltpp.length) * 100) + '%', 'of the stack...')
@@ -396,7 +395,6 @@ const executeTrade = async (json) => {
           })
         } else { console.log('(Not using limit exits, no limit exits set)') }
       }
-      } else { console.log('Not using override_ltpp, and you have an open position: ltpp targets not replaced') }
     }
 
     const longEntry = async () => {
@@ -471,8 +469,7 @@ const executeTrade = async (json) => {
       } else { console.log('orderType=' + orderType, 'MARKET EXIT ORDER CANCELED, MAYBE NO ORDER TO CLOSE?') }
     }
 
-    const setLongLimitExit = async (override_ltpp) => {
-      if (override_ltpp || (override_ltpp == undefined && freeContractQty > usedContractQty) ) { // If not using override_ltpp, will not set new ltpp targets if a new order comes in when a position is already open
+    const setLongLimitExit = async () => {
       if (currentDirection && (usedContractQty > 0)) { // If using activation direction, and this is an old order, dont set limit
         console.log('Pre-existing activation direction order, no new limit exit set (keeping old limit exit)')
       } else {
@@ -481,9 +478,9 @@ const executeTrade = async (json) => {
         let refreshedQuotePrice = refreshedBalances.quotePrice
         let refreshedUsedContractQty = Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
         if (ltpp && ltpp.length > 0) {
-            ltpp.forEach( async (limitTakeProfitValue) => { // Passes in the value in the array, e.g. 0.2
+          ltpp.forEach(async (limitTakeProfitValue) => { // Passes in the value in the array, e.g. 0.2
             let limitTakeProfitPercent = parseFloat(limitTakeProfitValue * .01) // Convert the value to percent
-              let limitTakeProfitPrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? orderQuotePrice * (1 - limitTakeProfitPercent) : orderQuotePrice * (1 + limitTakeProfitPercent) // TP values are based off entry price, not price at time of limit_cancel_time_seconds
+            let limitTakeProfitPrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? refreshedQuotePrice * (1 - limitTakeProfitPercent) : refreshedQuotePrice * (1 + limitTakeProfitPercent)
             let exitOrderContractQty = Math.floor(refreshedUsedContractQty / ltpp.length) // Evenly distribute limit take profit targets
             if (refreshedUsedContractQty > 0) {
               console.log('setting limit exit at', limitTakeProfitPrice, 'using', exitOrderContractQty, 'contracts: about', ((1 / ltpp.length) * 100) + '%', 'of the stack...')
@@ -500,7 +497,6 @@ const executeTrade = async (json) => {
           })
         } else { console.log('(Not using limit exits, no limit exits set)') }
       }
-      } else { console.log('Not using override_ltpp, and you have an open position: ltpp targets not replaced') }
     }
 
 
@@ -524,7 +520,7 @@ const executeTrade = async (json) => {
                 .then(() => limitOrderFillDelay(orderType, limit_cancel_time_seconds))
                 .then(() => cancelUnfilledLimitOrders())
                 .then(() => setBybitTslp(trailingStopLossTarget))
-              .then( () => setShortLimitExit(override_ltpp) )
+                .then(() => setShortLimitExit())
                 .catch((error) => console.log(error))
             } else { console.log('PREVENTED BECAUSE CURRENT DIRECTION =', currentDirection) }
             break
@@ -542,7 +538,7 @@ const executeTrade = async (json) => {
                 .then(() => limitOrderFillDelay(orderType, limit_cancel_time_seconds))
                 .then(() => cancelUnfilledLimitOrders())
                 .then(() => setBybitTslp(trailingStopLossTarget))
-              .then( () => setLongLimitExit(override_ltpp) )
+                .then(() => setLongLimitExit())
                 .catch((error) => console.log(error))
             } else { console.log('PREVENTED BECAUSE CURRENT DIRECTION =', currentDirection) }
             break
@@ -556,12 +552,12 @@ const executeTrade = async (json) => {
             console.log('REVERSE SHORT TO LONG')
             if (!currentDirection || currentDirection == 'long') { // Check when using activation direction
               await cancelUnfilledLimitOrders()
-              .then( () => { order_type == 'limit' ? shortMarketExit() : Promise.resolve() } ) // Market orders conduct exit+entry in one action, while limits use 2 actions
+                .then(() => { action == 'limit' ? shortMarketExit() : Promise.resolve() }) // Market orders conduct exit+entry in one action, while limits use 2 actions
                 .then(() => longEntry())
                 .then(() => limitOrderFillDelay(orderType, limit_cancel_time_seconds))
                 .then(() => cancelUnfilledLimitOrders())
                 .then(() => setBybitTslp(trailingStopLossTarget))
-              .then( () => setLongLimitExit(override_ltpp) )
+                .then(() => setLongLimitExit())
                 .catch((error) => console.log(error))
             } else { console.log('PREVENTED BECAUSE CURRENT DIRECTION =', currentDirection) }
             break
@@ -569,12 +565,12 @@ const executeTrade = async (json) => {
             console.log('REVERSE LONG TO SHORT')
             if (!currentDirection || currentDirection == 'short') { // Check when using activation direction
               await cancelUnfilledLimitOrders()
-              .then( () => { order_type == 'limit' ? longMarketExit() : Promise.resolve() } ) // Market orders conduct exit+entry in one action, while limits use 2 actions
+                .then(() => { action == 'limit' ? longMarketExit() : Promise.resolve() }) // Market orders conduct exit+entry in one action, while limits use 2 actions
                 .then(() => shortEntry())
                 .then(() => limitOrderFillDelay(orderType, limit_cancel_time_seconds))
                 .then(() => cancelUnfilledLimitOrders())
                 .then(() => setBybitTslp(trailingStopLossTarget))
-              .then( () => setShortLimitExit(override_ltpp) )
+                .then(() => setShortLimitExit())
                 .catch((error) => console.log(error))
             } else { console.log('PREVENTED BECAUSE CURRENT DIRECTION =', currentDirection) }
             break
