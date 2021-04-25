@@ -81,6 +81,7 @@ const handleTrade = (req, res) => {
   let json = req.body
   if (json.auth_id === AUTH_ID) {
     if (json.current_direction) { currentDirection = json.current_direction } // When using activation direction
+    if (json.action == 'short_entry' || json.action == 'reverse_long_to_short') { lastTradeDirection = 'short' } else if (json.action == 'long_entry' || json.action == 'reverse_short_to_long') { lastTradeDirection = 'long' } // Stores the last trade direction in memory
     executeTrade(json)
     res.status(200).end()
   } else {
@@ -153,6 +154,9 @@ const getBalances = async () => {
 
 // When using activation direction
 let currentDirection = undefined
+
+// Important for determining reversal logic
+let lastTradeDirection = undefined
 
 // When using Bollinger Band signals. Middle band has to be touched to allow the next trade. The next long/short is approved if the lower/upper bands are breached
 let bbNextTradeApproved = undefined
@@ -239,7 +243,12 @@ const executeTrade = async (json) => {
                 }
               }
               try {
-                let orderQty = usedContractQty > 0 ? (usedContractQty * 2) - freeContractQty : freeContractQty // If market order, fully reverse position in one action to save on fees
+                let orderQty
+                if (lastTradeDirection && lastTradeDirection == 'short') {
+                  orderQty = freeContractQty // If the last trade was in this same direction, you might have an open position, so this will add to it with your freeContractQty
+                } else {
+                  orderQty = usedContractQty > 0 ? (usedContractQty * 1.975) : freeContractQty // If market reversal order, fully reverse position in one action to save on fees
+                }
                 await exchange.createOrder(TICKER, orderType, 'sell', orderQty, orderQuotePrice, tradeParams)
               } catch {
                 console.log('ERROR PLACING A SHORT MARKET ENTRY: Performing emergency exit in case you were reversing')
@@ -299,6 +308,7 @@ const executeTrade = async (json) => {
 
     const setShortLimitExit = async (override_ltpp) => {
       if (override_ltpp || (override_ltpp == undefined && freeContractQty > usedContractQty) ) { // If not using override_ltpp, will not set new ltpp targets if a new order comes in when a position is already open
+        console.log('firing off setShortLimitExit...')
         if (currentDirection && (usedContractQty > 0)) { // If using activation direction, and this is an old order, dont set limit
           console.log('Pre-existing activation direction order, no new limit exit set (keeping old limit exit)')
         } else {
@@ -343,7 +353,12 @@ const executeTrade = async (json) => {
                 }
               }
               try {
-                let orderQty = usedContractQty > 0 ? (usedContractQty * 2) - freeContractQty : freeContractQty // If market order, fully reverse position in one action to save on fees
+                let orderQty
+                if (lastTradeDirection && lastTradeDirection == 'long') {
+                  orderQty = freeContractQty // If the last trade was in this same direction, you might have an open position, so this will add to it with your freeContractQty
+                } else {
+                  orderQty = usedContractQty > 0 ? (usedContractQty * 1.975) : freeContractQty // If market reversal order, fully reverse position in one action to save on fees
+                }
                 await exchange.createOrder(TICKER, orderType, 'buy', orderQty, orderQuotePrice, tradeParams)
               } catch {
                 console.log('ERROR PLACING A LONG MARKET ENTRY: Performing emergency exit in case you were reversing')
@@ -403,6 +418,7 @@ const executeTrade = async (json) => {
 
     const setLongLimitExit = async (override_ltpp) => {
       if (override_ltpp || (override_ltpp == undefined && freeContractQty > usedContractQty) ) { // If not using override_ltpp, will not set new ltpp targets if a new order comes in when a position is already open
+        console.log('firing off setLongLimitExit...')
         if (currentDirection && (usedContractQty > 0)) { // If using activation direction, and this is an old order, dont set limit
           console.log('Pre-existing activation direction order, no new limit exit set (keeping old limit exit)')
         } else {
@@ -449,8 +465,7 @@ const executeTrade = async (json) => {
           case 'short_entry':
             console.log('SHORT ENTRY, EXISTING ORDER')
             if (!currentDirection || currentDirection == 'short') { // Check when using activation direction
-              await cancelUnfilledLimitOrders()
-              .then( () => shortEntry() )
+              await shortEntry()
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
               .then( () => cancelUnfilledLimitOrders() )
               .then( () => setBybitTslp(trailingStopLossTarget) )
@@ -460,15 +475,13 @@ const executeTrade = async (json) => {
             break
           case 'short_exit':
             console.log('SHORT MARKET EXIT')
-            await cancelUnfilledLimitOrders()
-            .then( () => shortMarketExit() )
+            await shortMarketExit()
             .catch( (error) => console.log(error) )
             break
           case 'long_entry':
             console.log('LONG ENTRY, EXISTING ORDER')
             if (!currentDirection || currentDirection == 'long') { // Check when using activation direction
-              await cancelUnfilledLimitOrders()
-              .then( () => longEntry() )
+              await longEntry()
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
               .then( () => cancelUnfilledLimitOrders() )
               .then( () => setBybitTslp(trailingStopLossTarget) )
@@ -478,14 +491,13 @@ const executeTrade = async (json) => {
             break
           case 'long_exit':
             console.log('LONG MARKET EXIT')
-            await cancelUnfilledLimitOrders()
-            .then( () => longMarketExit() )
+            await longMarketExit()
             .catch( (error) => console.log(error) )
             break
           case 'reverse_short_to_long':
             console.log('REVERSE SHORT TO LONG')
             if (!currentDirection || currentDirection == 'long') { // Check when using activation direction
-              await cancelUnfilledLimitOrders()
+              await Promise.resolve()
               .then( () => { order_type == 'limit' ? shortMarketExit() : Promise.resolve() } ) // Market orders conduct exit+entry in one action, while limits use 2 actions
               .then( () => longEntry() )
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
@@ -498,7 +510,7 @@ const executeTrade = async (json) => {
           case 'reverse_long_to_short':
             console.log('REVERSE LONG TO SHORT')
             if (!currentDirection || currentDirection == 'short') { // Check when using activation direction
-              await cancelUnfilledLimitOrders()
+              await Promise.resolve()
               .then( () => { order_type == 'limit' ? longMarketExit() : Promise.resolve() } ) // Market orders conduct exit+entry in one action, while limits use 2 actions
               .then( () => shortEntry() )
               .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
