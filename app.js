@@ -413,8 +413,10 @@ const executeTrade = async (json) => {
     const tradeParser = async () => {
       console.log('lastTradeDirection=' + lastTradeDirection)
       if (action == 'set_new_tslp') {
-        console.log('NEW COMMAND: SET NEW TSLP')
-        await setBybitTslp(trailingStopLossTarget)
+        let setNewTslpDelay = 10 // This is in case this command comes in on the same bar as another command
+        console.log('NEW COMMAND: SETTING NEW TSLP AFTER', setNewTslpDelay, 'SECONDS...')
+        await new Promise(resolve => setTimeout(resolve, setNewTslpDelay * 1000)) // wait a few seconds before firing, in case this command happens at the same time as an entry command
+        .then( () => setBybitTslp(trailingStopLossTarget) )
         .catch( (error) => console.log(error) )
       } else {
         switch (action) {
