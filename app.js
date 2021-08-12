@@ -168,10 +168,12 @@ const executeTrade = async (json) => {
   try {
     // ltpp = limit take profit %, mtpp = market take profit %, slp = stop loss %, tslp = trailing stop loss %
     // IMPORTANT: LEVERAGE NEEDS TO MANUALLY BE SET IN BYBIT AS WELL!!!
-    let {action, override, override_ltpp, order_type, limit_backtrace_percent, limit_cancel_time_seconds, ltpp, mtpp, slp, tslp, leverage} = json
+    let {action, override, override_ltpp, order_type, trailing_limit_entry, trailing_limit_entry_attempts, limit_backtrace_percent, limit_cancel_time_seconds, ltpp, mtpp, slp, tslp, leverage} = json
     mtpp = parseFloat(mtpp * .01) // To percent
     slp = parseFloat(slp * .01) // To percent
     tslp = parseFloat(tslp * .01) // To percent
+    trailing_limit_entry = trailing_limit_entry == undefined ? false : true // Defaults to false
+    trailing_limit_entry_attempts = trailing_limit_entry_attempts && Number.isInteger(trailing_limit_entry_attempts) ? trailing_limit_entry_attempts : 1 // Defaults to 0
     limit_backtrace_percent = parseFloat(limit_backtrace_percent * .01) // To percent
 
     override_ltpp = true // TEMPORARY UNTIL I FIX THIS ISSUE!!!!!
@@ -245,9 +247,10 @@ const executeTrade = async (json) => {
               return
             }
           } else if (orderType == 'limit') { // If limit, position already closed so get new Qty amounts
+            let refreshedLimitOrderQuotePrice = refreshedQuotePrice * (1 - limit_backtrace_percent)
             if (refreshedFreeInputQty > 0) {
               try {
-                await exchange.createOrder(TICKER, orderType, 'sell', refreshedFreeInputQty, refreshedQuotePrice, tradeParams)
+                await exchange.createOrder(TICKER, orderType, 'sell', refreshedFreeInputQty, refreshedLimitOrderQuotePrice, tradeParams)
                 .then( () => lastTradeDirection = 'short' )
               } catch { return console.log('ERROR PLACING A SHORT LIMIT ENTRY') }
             } else { console.log('orderType=' + orderType, 'LIMIT ENTRY ORDER CANCELED, ALREADY AN OPEN POSITION?') }
@@ -301,7 +304,7 @@ const executeTrade = async (json) => {
         if (ltpp && ltpp.length > 0) {
           ltpp.forEach( async (limitTakeProfitValue) => { // Passes in the value in the array, e.g. 0.2
             let limitTakeProfitPercent = parseFloat(limitTakeProfitValue * .01) // Convert the value to percent
-            let limitTakeProfitPrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? orderQuotePrice * (1 - limitTakeProfitPercent) : orderQuotePrice * (1 + limitTakeProfitPercent) // TP values are based off entry price, not price at time of limit_cancel_time_seconds
+            let limitTakeProfitPrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? refreshedQuotePrice * (1 - limitTakeProfitPercent) : refreshedQuotePrice * (1 + limitTakeProfitPercent) // TP values are based off entry price, not price at time of limit_cancel_time_seconds
             let exitOrderInputQty = usingBybitUSDT ? ((((refreshedUsedInputQty / ltpp.length)))) : Math.floor(refreshedUsedInputQty / ltpp.length) // Evenly distribute limit take profit targets
             if (refreshedUsedInputQty > 0) {
               console.log('setting limit exit at', limitTakeProfitPrice, 'using', exitOrderInputQty + ': about', ((1 / ltpp.length) * 100) + '%', 'of the stack...')
@@ -340,9 +343,10 @@ const executeTrade = async (json) => {
               return
             }
           } else if (orderType == 'limit') { // If limit, position already closed so get new Qty amounts
+            let refreshedLimitOrderQuotePrice = refreshedQuotePrice * (1 - limit_backtrace_percent)
             if (refreshedFreeInputQty > 0) {
               try {
-                await exchange.createOrder(TICKER, orderType, 'buy', refreshedFreeInputQty, refreshedQuotePrice, tradeParams)
+                await exchange.createOrder(TICKER, orderType, 'buy', refreshedFreeInputQty, refreshedLimitOrderQuotePrice, tradeParams)
                 .then( () => lastTradeDirection = 'long' )
               } catch { return console.log('ERROR PLACING A LONG LIMIT ENTRY') }
             } else { console.log('orderType=' + orderType, 'LIMIT ENTRY ORDER CANCELED, ALREADY AN OPEN POSITION?') }
@@ -396,7 +400,7 @@ const executeTrade = async (json) => {
         if (ltpp && ltpp.length > 0) {
           ltpp.forEach( async (limitTakeProfitValue) => { // Passes in the value in the array, e.g. 0.2
             let limitTakeProfitPercent = parseFloat(limitTakeProfitValue * .01) // Convert the value to percent
-            let limitTakeProfitPrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? orderQuotePrice * (1 - limitTakeProfitPercent) : orderQuotePrice * (1 + limitTakeProfitPercent) // TP values are based off entry price, not price at time of limit_cancel_time_seconds
+            let limitTakeProfitPrice = (action == 'short_entry' || action == 'short_exit' || action == 'reverse_long_to_short') ? refreshedQuotePrice * (1 - limitTakeProfitPercent) : refreshedQuotePrice * (1 + limitTakeProfitPercent) // TP values are based off entry price, not price at time of limit_cancel_time_seconds
             let exitOrderInputQty = usingBybitUSDT ? ((((refreshedUsedInputQty / ltpp.length)))) : Math.floor(refreshedUsedInputQty / ltpp.length) // Evenly distribute limit take profit targets
             if (refreshedUsedInputQty > 0) {
               console.log('setting limit exit at', limitTakeProfitPrice, 'using', exitOrderInputQty + ': about', ((1 / ltpp.length) * 100) + '%', 'of the stack...')
@@ -420,8 +424,59 @@ const executeTrade = async (json) => {
     // TODO: setting limit exits still happens on preexisting orders (it sets a new one)
 
     // TODO: DRY on refreshedBalances refreshedQuotePrice refreshedFreeContractQty refreshedUsedContractQty
-    // TODO figure out why ".02" limit_backtrace_percent works but not "2", im place orders at a way different entry price?
+    // TODO: figure out why ".02" limit_backtrace_percent works but not "2", im place orders at a way different entry price?
 
+    // TODO: refactor the below shitty "entry with retries" code
+
+    const checkIfLimitOrderFilled = async () => {
+      let refreshedBalances = await getBalances()
+      let refreshedQuotePrice = refreshedBalances.quotePrice
+      let refreshedFreeBalance = usingBybitUSDT ? refreshedBalances.freeQuoteBalance / refreshedQuotePrice * leverage : Math.floor(refreshedBalances.freeBaseBalance * refreshedQuotePrice * leverage)
+      let refreshedUsedBalance = usingBybitUSDT ? refreshedBalances.usedQuoteBalance / refreshedQuotePrice * leverage : Math.floor(refreshedBalances.usedBaseBalance * refreshedQuotePrice * leverage)
+      let refreshedTotalBalance = refreshedFreeBalance + refreshedUsedBalance
+      let wasOrderFilled = refreshedTotalBalance * .9 < refreshedUsedBalance ? true : false
+      return wasOrderFilled
+    }
+
+    const shortEntryWithRetries = async () => { // I know this is shitty code and I don't care, getting an MVP out is my priority
+      if (order_type == 'limit' && trailing_limit_entry && trailing_limit_entry_attempts > 1) {
+        let limitOrderFilled = false
+        for (let i = 0; i < trailing_limit_entry_attempts; i++) {
+          if (!limitOrderFilled) {
+            console.log("attempting limit entry, attempt #" + (i + 1) + "...")
+            await shortEntry()
+            .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
+            .then( () => cancelUnfilledLimitOrders() )
+            .then( () => checkIfLimitOrderFilled() )
+            .then( (wasOrderFilled) => { limitOrderFilled = wasOrderFilled } )
+          }
+        }
+      } else { // For order_type == 'market'
+        await shortEntry()
+        .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
+        .then( () => cancelUnfilledLimitOrders() )
+      }
+    }
+
+    const longEntryWithRetries = async () => { // I know this is shitty code and I don't care, getting an MVP out is my priority
+      if (order_type == 'limit' && trailing_limit_entry && trailing_limit_entry_attempts > 0) {
+        let limitOrderFilled = false
+        for (let i = 0; i < trailing_limit_entry_attempts; i++) {
+          if (!limitOrderFilled) {
+            console.log("attempting limit entry, attempt #" + (i + 1) + "...")
+            await longEntry()
+            .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
+            .then( () => cancelUnfilledLimitOrders() )
+            .then( () => checkIfLimitOrderFilled() )
+            .then( (wasOrderFilled) => { limitOrderFilled = wasOrderFilled } )
+          }
+        }
+      } else { // For order_type == 'market'
+        await longEntry()
+        .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
+        .then( () => cancelUnfilledLimitOrders() )
+      }
+    }
 
     // Decides what action to take with the received signal
     const tradeParser = async () => {
@@ -437,9 +492,7 @@ const executeTrade = async (json) => {
           case 'short_entry':
             if (!lastTradeDirection || lastTradeDirection == 'long' || override) { // Prevents repeat actions but lets you override
               console.log('NEW COMMAND: SHORT ENTRY')
-              await shortEntry()
-              .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              .then( () => cancelUnfilledLimitOrders() )
+              await shortEntryWithRetries()
               .then( () => setBybitTslp(lastTradeDirection, trailingStopLossTarget) )
               .then( () => setShortLimitExit(override_ltpp) )
               .catch( (error) => console.log(error) )
@@ -455,9 +508,7 @@ const executeTrade = async (json) => {
           case 'long_entry':
             if (!lastTradeDirection || lastTradeDirection == 'short' || override) { // Prevents repeat actions but lets you override
               console.log('NEW COMMAND: LONG ENTRY')
-              await longEntry()
-              .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              .then( () => cancelUnfilledLimitOrders() )
+              await longEntryWithRetries()
               .then( () => setBybitTslp(lastTradeDirection, trailingStopLossTarget) )
               .then( () => setLongLimitExit(override_ltpp) )
               .catch( (error) => console.log(error) )
@@ -474,10 +525,8 @@ const executeTrade = async (json) => {
             if (!lastTradeDirection || lastTradeDirection == 'short' || override) { // Prevents repeat actions but lets you override
               console.log('NEW COMMAND: REVERSE SHORT TO LONG')
               await Promise.resolve()
-              .then( () => shortMarketExit() ) // { order_type == 'limit' ? shortMarketExit() : Promise.resolve() } ) // Market orders conduct exit+entry in one action, while limits use 2 actions
-              .then( () => longEntry() )
-              .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              .then( () => cancelUnfilledLimitOrders() )
+              .then( () => shortMarketExit() )
+              .then( () => longEntryWithRetries() )
               .then( () => setBybitTslp(lastTradeDirection, trailingStopLossTarget) )
               .then( () => setLongLimitExit(override_ltpp) )
               .catch( (error) => console.log(error) )
@@ -487,10 +536,8 @@ const executeTrade = async (json) => {
             if (!lastTradeDirection || lastTradeDirection == 'long' || override) { // Prevents repeat actions but lets you override
               console.log('NEW COMMAND: REVERSE LONG TO SHORT')
               await Promise.resolve()
-              .then( () => longMarketExit() ) // { order_type == 'limit' ? longMarketExit() : Promise.resolve() } ) // Market orders conduct exit+entry in one action, while limits use 2 actions
-              .then( () => shortEntry() )
-              .then( () => limitOrderFillDelay(orderType, limit_cancel_time_seconds) )
-              .then( () => cancelUnfilledLimitOrders() )
+              .then( () => longMarketExit() )
+              .then( () => shortEntryWithRetries() )
               .then( () => setBybitTslp(lastTradeDirection, trailingStopLossTarget) )
               .then( () => setShortLimitExit(override_ltpp) )
               .catch( (error) => console.log(error) )
